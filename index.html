@@ -11,7 +11,7 @@
             --board-bg: #1a1a1a;
             --color-a: #ef4444; /* Red */
             --color-b: #3b82f6; /* Blue */
-            --color-c: #f97316; /* Orange */
+            --color-c: #ec4899; /* Pink (Changed from Orange) */
             --color-d: #22d3ee; /* Cyan */
             --valid-move-light: rgba(255, 255, 255, 0.2);
             --selected-glow: rgba(255, 255, 100, 0.7);
@@ -61,14 +61,19 @@
         .piece {
             width: 90%;
             height: 90%;
-            border-radius: 50%;
             cursor: default;
             transition: all 0.2s ease-in-out;
             box-shadow: 0 2px 4px rgba(0,0,0,0.5) inset, 0 2px 4px rgba(0,0,0,0.5);
         }
         
-        .piece.posture-new { transform: scale(1); }
-        .piece.posture-old { transform: scale(0.75); }
+        .piece.posture-new { 
+            transform: scale(1); 
+            border-radius: 20%;
+        }
+        .piece.posture-old { 
+            transform: scale(0.75); 
+            border-radius: 50%;
+        }
 
         .piece.color-A { background-color: var(--color-a); }
         .piece.color-B { background-color: var(--color-b); }
@@ -77,11 +82,6 @@
         
         .selected-placement {
              box-shadow: 0 0 10px 3px var(--selected-glow);
-        }
-        
-        /* Modal */
-        .modal {
-            transition: opacity 0.3s ease;
         }
         
         /* Buttons */
@@ -147,14 +147,6 @@
         </div>
     </div>
     
-    <div id="modal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden opacity-0 z-50">
-        <div class="bg-gray-800 rounded-lg shadow-xl p-8 text-center max-w-sm w-full">
-            <p id="modal-text" class="text-2xl font-bold mb-6"></p>
-            <button id="modal-button" class="btn text-white font-bold py-2 px-6 rounded-lg">Play Again</button>
-        </div>
-    </div>
-
-
     <script>
     document.addEventListener('DOMContentLoaded', () => {
 
@@ -175,8 +167,7 @@
         const HEURISTIC_PRIOR_WINS = 1;
         const HEURISTIC_PRIOR_VISITS = 5;
         const HEURISTIC_ROLLOUT_BIAS = 0.8;
-        // --- NEW: Heuristic Configuration for Material ---
-        const ROLLOUT_DEPTH_LIMIT = 20; // Max moves to simulate before using material heuristic
+        const ROLLOUT_DEPTH_LIMIT = 20;
 
         // --- DOM ELEMENTS ---
         const boardElement = document.getElementById('board');
@@ -184,9 +175,6 @@
         const infoIndicator = document.getElementById('info-indicator');
         const resetButton = document.getElementById('reset-button');
         const boardSizeSelector = document.getElementById('board-size-selector');
-        const modal = document.getElementById('modal');
-        const modalText = document.getElementById('modal-text');
-        const modalButton = document.getElementById('modal-button');
         const turnColorIndicator = document.getElementById('turn-color-indicator');
 
         // --- GAME STATE ---
@@ -267,13 +255,15 @@
         }
         
         function updateStatus() {
+            if (gameOver) return;
+
             const color = getPlayerColor();
             const team = PLAYER_TEAMS[color];
             turnIndicator.textContent = `Turn: ${color} (Team ${team})`;
-            turnIndicator.style.color = `var(--color-${color.toLowerCase()})`;
-            turnColorIndicator.style.backgroundColor = `var(--color-${color.toLowerCase()})`;
-
-            if (gameOver) return;
+            // TWEAK 1: Use toLowerCase() to match CSS variable names (e.g., --color-a)
+            const cssVarColor = `var(--color-${color.toLowerCase()})`;
+            turnIndicator.style.color = cssVarColor;
+            turnColorIndicator.style.backgroundColor = cssVarColor;
 
             if (isHumanTurn()) {
                  infoIndicator.textContent = `Place ${pawnsToPlace - placementsThisTurn.length} more pawn(s).`;
@@ -449,51 +439,77 @@
             
             let visitedNS = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
             for (let c = 0; c < BOARD_SIZE; c++) {
-                if (currentBoard[0][c]?.color === color && !isCorner(0, c) && !visitedNS[0][c]) {
-                    const path = dfs(0, c, color, 'S', visitedNS, currentBoard);
+                if (currentBoard[0][c]?.color === color && !isCorner(0, c)) {
+                    const path = bfs(0, c, color, 'S', visitedNS, currentBoard);
                     if (path) return path;
                 }
             }
             
             let visitedEW = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
             for (let r = 0; r < BOARD_SIZE; r++) {
-                if (currentBoard[r][0]?.color === color && !isCorner(r, 0) && !visitedEW[r][0]) {
-                    const path = dfs(r, 0, color, 'E', visitedEW, currentBoard);
+                if (currentBoard[r][0]?.color === color && !isCorner(r, 0)) {
+                    const path = bfs(r, 0, color, 'E', visitedEW, currentBoard);
                     if (path) return path;
                 }
             }
             return null;
         }
 
-        function dfs(r, c, color, targetSide, visited, currentBoard) {
-            if (!isValid(r, c) || visited[r][c] || currentBoard[r][c]?.color !== color || getSquexType(r,c) === 'corner') {
-                return null;
-            }
+        // TWEAK 2: Replaced DFS with BFS to find the shortest path
+        function bfs(startR, startC, color, targetSide, visited, currentBoard) {
+            if (visited[startR][startC]) return null;
+
+            const queue = [{ r: startR, c: startC }];
+            const parent = new Map();
+            const startKey = `${startR},${startC}`;
+            parent.set(startKey, null);
             
-            visited[r][c] = true;
-            
-            if ((targetSide === 'S' && r === BOARD_SIZE - 1) || (targetSide === 'E' && c === BOARD_SIZE - 1)) {
-                return [{r, c}];
-            }
-            
-            for (let dr = -1; dr <= 1; dr++) {
-                for (let dc = -1; dc <= 1; dc++) {
-                    if (dr === 0 && dc === 0) continue;
-                    const path = dfs(r + dr, c + dc, color, targetSide, visited, currentBoard);
-                    if (path) {
-                        path.unshift({r, c});
-                        return path;
+            visited[startR][startC] = true;
+
+            let queueIndex = 0;
+            let endNode = null;
+
+            while (queueIndex < queue.length) {
+                const { r, c } = queue[queueIndex++];
+
+                if ((targetSide === 'S' && r === BOARD_SIZE - 1) || (targetSide === 'E' && c === BOARD_SIZE - 1)) {
+                    endNode = { r, c };
+                    break;
+                }
+
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const nr = r + dr;
+                        const nc = c + dc;
+
+                        if (isValid(nr, nc) && !visited[nr][nc] && currentBoard[nr][nc]?.color === color && getSquexType(nr, nc) !== 'corner') {
+                            visited[nr][nc] = true;
+                            const key = `${nr},${nc}`;
+                            parent.set(key, { r, c });
+                            queue.push({ r: nr, c: nc });
+                        }
                     }
                 }
             }
             
-            return null;
+            if (!endNode) return null;
+
+            const path = [];
+            let current = endNode;
+            while (current) {
+                path.unshift(current);
+                const key = `${current.r},${current.c}`;
+                current = parent.get(key);
+            }
+            return path;
         }
 
         function animateWinningChain(path, winner) {
             gameOver = true;
             boardSizeSelector.disabled = true;
             resetButton.disabled = true;
+            document.querySelectorAll('.board-square').forEach(s => s.classList.remove('valid-move', 'selected-placement'));
 
             path.forEach(({r, c}) => {
                 const square = boardElement.children[r * BOARD_SIZE + c];
@@ -504,35 +520,31 @@
                 endGame(winner);
             }, 3000);
         }
-
+        
         function endGame(winner, isDraw = false) {
             gameOver = true;
+            boardSizeSelector.disabled = false;
+            resetButton.disabled = false;
 
             if (isDraw) {
-                modalText.textContent = `It's a draw!`;
-                infoIndicator.textContent = "Game over: Draw.";
-                modalText.style.color = '';
+                turnIndicator.textContent = "It's a draw!";
+                turnIndicator.style.color = '#e0e0e0';
+                infoIndicator.textContent = "No valid moves. Reset to play again.";
+                turnColorIndicator.style.backgroundColor = '#4a4a4a';
             } else {
                 const winningTeam = PLAYER_TEAMS[winner];
-                modalText.textContent = `Color ${winner} wins for Team ${winningTeam}!`;
-                infoIndicator.textContent = `Game over: ${winner} wins!`;
-                modalText.style.color = `var(--color-${winner.toLowerCase()})`;
+                // TWEAK 1: Use toLowerCase() to match CSS variable names (e.g., --color-a)
+                const cssVarColor = `var(--color-${winner.toLowerCase()})`;
+                turnIndicator.textContent = `${winner} (Team ${winningTeam}) wins!`;
+                turnIndicator.style.color = cssVarColor;
+                infoIndicator.textContent = "Game Over. Reset to play again.";
+                turnColorIndicator.style.backgroundColor = cssVarColor;
             }
-
-            modal.classList.remove('hidden');
-            setTimeout(() => modal.classList.remove('opacity-0'), 10);
         }
 
         // EVENT LISTENERS
         resetButton.addEventListener('click', initGame);
         boardSizeSelector.addEventListener('change', initGame);
-        modalButton.addEventListener('click', () => {
-            modal.classList.add('opacity-0');
-            setTimeout(() => {
-                modal.classList.add('hidden');
-                initGame();
-            }, 300);
-        });
 
         // --- Heuristic Helper Functions ---
         function isEnemy(pieceColor, playerColor) {
@@ -558,8 +570,7 @@
             }
             return 0;
         }
-
-        // --- NEW: Material Heuristic Function ---
+        
         function evaluateState(currentBoard) {
             let counts = { 'A': 0, 'B': 0, 'C': 0, 'D': 0 };
             for (let r = 0; r < BOARD_SIZE; r++) {
@@ -574,8 +585,6 @@
             const totalPieces = team1Score + team2Score;
 
             if (totalPieces === 0) return 0;
-            
-            // Return score from the perspective of Team 1 (-1 to 1)
             return (team1Score - team2Score) / totalPieces;
         }
 
@@ -687,18 +696,15 @@
                 return childNode;
             }
             
-            // --- MODIFIED: Backpropagation now handles scores instead of just wins ---
-            backpropagate(result) { // result is a score from -1 to 1 for Team 1
+            backpropagate(result) { 
                 this.visits++;
-                // The parent is the node where the decision was made. We update the score
-                // from the perspective of the player at the parent node.
                 const parentPlayerColor = this.parent ? this.parent.gameState.getCurrentPlayer() : null;
                 if (parentPlayerColor) {
                     const parentPlayerTeam = PLAYER_TEAMS[parentPlayerColor];
                     if (parentPlayerTeam === 1) {
-                        this.wins += result; // Add score directly for Team 1
-                    } else { // Team 2
-                        this.wins -= result; // Add the inverted score for Team 2
+                        this.wins += result;
+                    } else { 
+                        this.wins -= result;
                     }
                 }
                 
@@ -720,7 +726,6 @@
                 while (node.untriedMoves.length === 0 && node.children.length > 0) node = node.selectChild();
                 if (node.untriedMoves.length > 0) node = node.expand();
                 
-                // --- MODIFIED: Simulation (Rollout) now uses a depth limit and material heuristic ---
                 let rolloutState = node.gameState;
                 let rolloutDepth = 0;
                 while (!rolloutState.isTerminal() && rolloutDepth < ROLLOUT_DEPTH_LIMIT) {
@@ -739,24 +744,20 @@
                     rolloutDepth++;
                 }
                 
-                // Determine result of the rollout
                 let result;
                 if (rolloutState.isTerminal()) {
                     const winnerTeam = rolloutState.getWinner();
-                    if (winnerTeam === null) result = 0;      // Draw
-                    else if (winnerTeam === 1) result = 1;  // Team 1 wins
-                    else result = -1;                       // Team 2 wins
+                    if (winnerTeam === null) result = 0;
+                    else if (winnerTeam === 1) result = 1;
+                    else result = -1;
                 } else {
-                    // Reached depth limit, use material heuristic
                     result = evaluateState(rolloutState.board);
                 }
 
-                // Backpropagate the result (now a score from -1 to 1)
                 node.backpropagate(result);
                 iterations++;
             }
             
-            // In UCB1, 'wins' is now a score. We still pick the child with the most visits as it's more robust.
             const bestChild = rootNode.children.sort((a, b) => b.visits - a.visits)[0];
 
             if (bestChild && bestChild.move) {
@@ -789,3 +790,4 @@
     </script>
 </body>
 </html>
+
