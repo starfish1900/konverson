@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Konverson Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --board-bg: #1a1a1a;
+            --color-a: #ef4444; /* Red */
+            --color-b: #3b82f6; /* Blue */
+            --color-c: #f97316; /* Orange */
+            --color-d: #22d3ee; /* Cyan */
+            --valid-move-light: rgba(255, 255, 255, 0.2);
+            --selected-glow: rgba(255, 255, 100, 0.7);
+        }
+
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+        
+        #board-size-selector {
+            background-color: #333;
+            border: 1px solid #555;
+            color: white;
+        }
+
+        .board-container {
+            display: grid;
+            width: 90vw;
+            height: 90vw;
+            max-width: 700px;
+            max-height: 700px;
+            background-color: var(--board-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3), 0 6px 6px rgba(0,0,0,0.25);
+            padding: 10px;
+            gap: 4px;
+        }
+
+        .board-square {
+            width: 100%;
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
+            background-color: #2a2a2a;
+        }
+        
+        .board-square.valid-move {
+            background-color: var(--valid-move-light);
+            cursor: pointer;
+        }
+
+        .piece {
+            width: 90%;
+            height: 90%;
+            border-radius: 50%;
+            cursor: default;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5) inset, 0 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        .piece.posture-new { transform: scale(1); }
+        .piece.posture-old { transform: scale(0.75); }
+
+        .piece.color-A { background-color: var(--color-a); }
+        .piece.color-B { background-color: var(--color-b); }
+        .piece.color-C { background-color: var(--color-c); }
+        .piece.color-D { background-color: var(--color-d); }
+        
+        .selected-placement {
+             box-shadow: 0 0 10px 3px var(--selected-glow);
+        }
+        
+        /* Modal */
+        .modal {
+            transition: opacity 0.3s ease;
+        }
+        
+        /* Buttons */
+        .btn {
+            background-color: #333;
+            border: 1px solid #555;
+            transition: all 0.2s ease;
+        }
+        .btn:hover:not(:disabled) {
+            background-color: #444;
+            border-color: #777;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Winning Animation */
+        @keyframes pulse {
+            0% { transform: scale(0.9); box-shadow: 0 0 8px 2px var(--selected-glow); }
+            50% { transform: scale(1.1); box-shadow: 0 0 18px 7px var(--selected-glow); }
+            100% { transform: scale(0.9); box-shadow: 0 0 8px 2px var(--selected-glow); }
+        }
+        .winning-piece .piece {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="text-center mb-4">
+        <h1 class="text-4xl md:text-5xl font-bold tracking-wider">KONVERSON</h1>
+        <p class="text-gray-400">The Game of Connexion and Conversion</p>
+    </div>
+
+    <div id="game-status" class="w-full max-w-lg bg-gray-800 rounded-lg p-3 mb-4 text-center shadow-lg">
+        <div class="flex items-center justify-center">
+            <p id="turn-indicator" class="text-lg font-semibold mr-3">Loading...</p>
+            <div id="turn-color-indicator" class="w-5 h-5 rounded-full shadow-md transition-colors duration-300"></div>
+        </div>
+        <p id="info-indicator" class="text-sm text-gray-400">Game is setting up.</p>
+    </div>
+
+    <div id="board" class="board-container mb-4"></div>
+
+    <div class="flex items-center space-x-4">
+        <button id="reset-button" class="btn text-white font-bold py-2 px-4 rounded-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="inline-block mr-2" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+            </svg>
+            Reset Game
+        </button>
+        <div class="flex items-center space-x-2">
+            <label for="board-size-selector">Size:</label>
+            <select id="board-size-selector" class="rounded p-2">
+                <option value="9">9x9</option>
+                <option value="11" selected>11x11</option>
+                <option value="13">13x13</option>
+                <option value="15">15x15</option>
+            </select>
+        </div>
+    </div>
+    
+    <div id="modal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden opacity-0 z-50">
+        <div class="bg-gray-800 rounded-lg shadow-xl p-8 text-center max-w-sm w-full">
+            <p id="modal-text" class="text-2xl font-bold mb-6"></p>
+            <button id="modal-button" class="btn text-white font-bold py-2 px-6 rounded-lg">Play Again</button>
+        </div>
+    </div>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- CONFIGURATION ---
+        let BOARD_SIZE = 11;
+        const COLORS = ['A', 'B', 'C', 'D'];
+        const ALLIANCES = { 'A': 'C', 'C': 'A', 'B': 'D', 'D': 'B' };
+        const PLAYER_TEAMS = { 'A': 1, 'C': 1, 'B': 2, 'D': 2 };
+        const HUMAN_TEAMS = [1];
+        const AI_TEAMS = [2];
+
+        // MCTS Configuration
+        const MCTS_ITERATIONS = 1500000;
+        const MCTS_TIME_LIMIT_MS = 3000;
+        const MCTS_EXPLORATION_FACTOR = 1.414;
+        
+        // Heuristic Configuration
+        const HEURISTIC_PRIOR_WINS = 1;
+        const HEURISTIC_PRIOR_VISITS = 5;
+        const HEURISTIC_ROLLOUT_BIAS = 0.8;
+        // --- NEW: Heuristic Configuration for Material ---
+        const ROLLOUT_DEPTH_LIMIT = 20; // Max moves to simulate before using material heuristic
+
+        // --- DOM ELEMENTS ---
+        const boardElement = document.getElementById('board');
+        const turnIndicator = document.getElementById('turn-indicator');
+        const infoIndicator = document.getElementById('info-indicator');
+        const resetButton = document.getElementById('reset-button');
+        const boardSizeSelector = document.getElementById('board-size-selector');
+        const modal = document.getElementById('modal');
+        const modalText = document.getElementById('modal-text');
+        const modalButton = document.getElementById('modal-button');
+        const turnColorIndicator = document.getElementById('turn-color-indicator');
+
+        // --- GAME STATE ---
+        let board = [];
+        let currentPlayerIndex = 0;
+        let turnCount = 0;
+        let placementsThisTurn = [];
+        let pawnsToPlace = 0;
+        let gameOver = false;
+
+        // --- HELPER FUNCTIONS ---
+        const getPlayerColor = () => COLORS[currentPlayerIndex];
+        const isHumanTurn = () => HUMAN_TEAMS.includes(PLAYER_TEAMS[getPlayerColor()]);
+        const isValid = (r, c) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE;
+        
+        const getSquexType = (r, c) => {
+            const isCorner = (r === 0 || r === BOARD_SIZE - 1) && (c === 0 || c === BOARD_SIZE - 1);
+            if (isCorner) return 'corner';
+            const isBorder = r === 0 || r === BOARD_SIZE - 1 || c === 0 || c === BOARD_SIZE - 1;
+            if (isBorder) return 'border';
+            const isPreborder = (r === 1 || r === BOARD_SIZE - 2) || (c === 1 || c === BOARD_SIZE - 2);
+            if (isPreborder) return 'preborder';
+            return 'interior';
+        };
+        
+        const isNear = (r1, c1, r2, c2) => Math.abs(r1 - r2) <= 2 && Math.abs(c1 - c2) <= 2;
+        
+        // --- CORE GAME LOGIC ---
+
+        function initGame() {
+            BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            currentPlayerIndex = 0;
+            turnCount = 0;
+            placementsThisTurn = [];
+            pawnsToPlace = 1;
+            gameOver = false;
+            boardSizeSelector.disabled = false;
+            resetButton.disabled = false;
+            
+            boardElement.innerHTML = '';
+            boardElement.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+            boardElement.style.gridTemplateRows = `repeat(${BOARD_SIZE}, 1fr)`;
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const square = document.createElement('div');
+                    square.classList.add('board-square');
+                    square.dataset.r = r;
+                    square.dataset.c = c;
+                    square.addEventListener('click', () => handleSquareClick(r, c));
+                    boardElement.appendChild(square);
+                }
+            }
+            startTurn();
+        }
+
+        function renderBoard() {
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const square = boardElement.children[r * BOARD_SIZE + c];
+                    square.innerHTML = '';
+                    if (!square.classList.contains('winning-piece')) {
+                        square.classList.remove('valid-move', 'selected-placement');
+                    }
+
+                    if (board[r][c]) {
+                        const piece = document.createElement('div');
+                        piece.classList.add('piece', `color-${board[r][c].color}`, `posture-${board[r][c].posture}`);
+                        square.appendChild(piece);
+                    }
+                }
+            }
+            placementsThisTurn.forEach(({r, c}) => {
+                const square = boardElement.children[r * BOARD_SIZE + c];
+                if(square) square.classList.add('selected-placement');
+            });
+        }
+        
+        function updateStatus() {
+            const color = getPlayerColor();
+            const team = PLAYER_TEAMS[color];
+            turnIndicator.textContent = `Turn: ${color} (Team ${team})`;
+            turnIndicator.style.color = `var(--color-${color.toLowerCase()})`;
+            turnColorIndicator.style.backgroundColor = `var(--color-${color.toLowerCase()})`;
+
+            if (gameOver) return;
+
+            if (isHumanTurn()) {
+                 infoIndicator.textContent = `Place ${pawnsToPlace - placementsThisTurn.length} more pawn(s).`;
+            } else {
+                 infoIndicator.textContent = 'AI is thinking...';
+            }
+        }
+
+        function startTurn() {
+            turnCount++;
+            const color = getPlayerColor();
+            
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] && board[r][c].color === color && board[r][c].posture === 'new') {
+                        board[r][c].posture = 'old';
+                    }
+                }
+            }
+            
+            placementsThisTurn = [];
+            
+            const legalPlacements = getAllValidSinglePlacements(board);
+            pawnsToPlace = turnCount === 1 ? 1 : (legalPlacements.length >= 2 ? 2 : legalPlacements.length);
+
+            if (pawnsToPlace === 0 && turnCount > 1) {
+                endGame(null, true);
+                return;
+            }
+            
+            renderBoard();
+            updateStatus();
+
+            if (!isHumanTurn()) {
+                setTimeout(aiMove, 500);
+            } else {
+                highlightValidMoves();
+            }
+        }
+        
+        function handleSquareClick(r, c) {
+            if (gameOver || !isHumanTurn() || !isValidPlacement(r, c, board, placementsThisTurn)) {
+                return;
+            }
+
+            placementsThisTurn.push({ r, c });
+            
+            const color = getPlayerColor();
+            board[r][c] = { color, posture: 'new' };
+            performConversions(r, c, color, board);
+            renderBoard();
+
+            const winInfo = checkWinCondition(board);
+            if (winInfo) {
+                animateWinningChain(winInfo.path, winInfo.winner);
+                return;
+            }
+
+            if (placementsThisTurn.length === pawnsToPlace) {
+                advanceToNextTurn();
+            } else {
+                highlightValidMoves();
+                updateStatus();
+            }
+        }
+        
+        function advanceToNextTurn() {
+            currentPlayerIndex = (currentPlayerIndex + 1) % COLORS.length;
+            startTurn();
+        }
+        
+        function getAllValidSinglePlacements(currentBoard) {
+            const placements = [];
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (isValidPlacement(r, c, currentBoard, [])) {
+                        placements.push({r, c});
+                    }
+                }
+            }
+            return placements;
+        }
+        
+        function isValidPlacement(r, c, currentBoard, turnPlacements) {
+            if (currentBoard[r][c]) return false;
+
+            for (const p of turnPlacements) {
+                if (isNear(r, c, p.r, p.c)) return false;
+            }
+
+            const type = getSquexType(r, c);
+            if (type === 'interior') return true;
+
+            let hasRequiredNeighbor = false;
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (!isValid(nr, nc) || !currentBoard[nr][nc]) continue;
+
+                    const neighborType = getSquexType(nr, nc);
+                    if (type === 'preborder' && neighborType === 'interior') hasRequiredNeighbor = true;
+                    if (type === 'border' && neighborType === 'preborder') hasRequiredNeighbor = true;
+                    if (type === 'corner') {
+                         if (Math.abs(dr) === 1 && Math.abs(dc) === 1 && neighborType === 'preborder') {
+                             hasRequiredNeighbor = true;
+                         }
+                    }
+                }
+            }
+            return hasRequiredNeighbor;
+        }
+
+        function highlightValidMoves() {
+            document.querySelectorAll('.board-square').forEach(s => s.classList.remove('valid-move'));
+            
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (isValidPlacement(r, c, board, placementsThisTurn)) {
+                        const square = boardElement.children[r * BOARD_SIZE + c];
+                        square.classList.add('valid-move');
+                    }
+                }
+            }
+        }
+
+        function performConversions(r, c, color, currentBoard) {
+            const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+            
+            directions.forEach(([dr, dc]) => {
+                const captured = [];
+                let lineColor = null;
+                
+                for (let i = 1; i < BOARD_SIZE; i++) {
+                    const cr = r + i * dr;
+                    const cc = c + i * dc;
+
+                    if (!isValid(cr, cc) || !currentBoard[cr][cc]) break;
+
+                    const piece = currentBoard[cr][cc];
+                    
+                    if (i === 1) {
+                        if (piece.posture === 'new' || piece.color === color) break;
+                        lineColor = piece.color;
+                        captured.push({ r: cr, c: cc });
+                    } else {
+                        if (piece.color === lineColor && piece.posture === 'old') {
+                            captured.push({ r: cr, c: cc });
+                        } else if (piece.color === color) {
+                            captured.forEach(p => currentBoard[p.r][p.c].color = color);
+                            break; 
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+        
+        function checkWinCondition(currentBoard) {
+            for (const color of COLORS) {
+                const path = hasConnection(color, currentBoard);
+                if (path) {
+                    return { winner: color, path: path };
+                }
+            }
+            return null;
+        }
+
+        function hasConnection(color, currentBoard) {
+            const isCorner = (r, c) => getSquexType(r, c) === 'corner';
+            
+            let visitedNS = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (currentBoard[0][c]?.color === color && !isCorner(0, c) && !visitedNS[0][c]) {
+                    const path = dfs(0, c, color, 'S', visitedNS, currentBoard);
+                    if (path) return path;
+                }
+            }
+            
+            let visitedEW = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                if (currentBoard[r][0]?.color === color && !isCorner(r, 0) && !visitedEW[r][0]) {
+                    const path = dfs(r, 0, color, 'E', visitedEW, currentBoard);
+                    if (path) return path;
+                }
+            }
+            return null;
+        }
+
+        function dfs(r, c, color, targetSide, visited, currentBoard) {
+            if (!isValid(r, c) || visited[r][c] || currentBoard[r][c]?.color !== color || getSquexType(r,c) === 'corner') {
+                return null;
+            }
+            
+            visited[r][c] = true;
+            
+            if ((targetSide === 'S' && r === BOARD_SIZE - 1) || (targetSide === 'E' && c === BOARD_SIZE - 1)) {
+                return [{r, c}];
+            }
+            
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const path = dfs(r + dr, c + dc, color, targetSide, visited, currentBoard);
+                    if (path) {
+                        path.unshift({r, c});
+                        return path;
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        function animateWinningChain(path, winner) {
+            gameOver = true;
+            boardSizeSelector.disabled = true;
+            resetButton.disabled = true;
+
+            path.forEach(({r, c}) => {
+                const square = boardElement.children[r * BOARD_SIZE + c];
+                if (square) square.classList.add('winning-piece');
+            });
+
+            setTimeout(() => {
+                endGame(winner);
+            }, 3000);
+        }
+
+        function endGame(winner, isDraw = false) {
+            gameOver = true;
+
+            if (isDraw) {
+                modalText.textContent = `It's a draw!`;
+                infoIndicator.textContent = "Game over: Draw.";
+                modalText.style.color = '';
+            } else {
+                const winningTeam = PLAYER_TEAMS[winner];
+                modalText.textContent = `Color ${winner} wins for Team ${winningTeam}!`;
+                infoIndicator.textContent = `Game over: ${winner} wins!`;
+                modalText.style.color = `var(--color-${winner.toLowerCase()})`;
+            }
+
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+        }
+
+        // EVENT LISTENERS
+        resetButton.addEventListener('click', initGame);
+        boardSizeSelector.addEventListener('change', initGame);
+        modalButton.addEventListener('click', () => {
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                initGame();
+            }, 300);
+        });
+
+        // --- Heuristic Helper Functions ---
+        function isEnemy(pieceColor, playerColor) {
+            if (!pieceColor || pieceColor === playerColor) return false;
+            return ALLIANCES[playerColor] !== pieceColor;
+        }
+
+        function getMoveHeuristic(move, currentBoard, playerColor) {
+            for (const placement of move) {
+                const { r, c } = placement;
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const nr = r + dr;
+                        const nc = c + dc;
+                        if (isValid(nr, nc) && currentBoard[nr][nc]) {
+                            if (isEnemy(currentBoard[nr][nc].color, playerColor)) {
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+            return 0;
+        }
+
+        // --- NEW: Material Heuristic Function ---
+        function evaluateState(currentBoard) {
+            let counts = { 'A': 0, 'B': 0, 'C': 0, 'D': 0 };
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (currentBoard[r][c]) {
+                        counts[currentBoard[r][c].color]++;
+                    }
+                }
+            }
+            const team1Score = counts['A'] + counts['C'];
+            const team2Score = counts['B'] + counts['D'];
+            const totalPieces = team1Score + team2Score;
+
+            if (totalPieces === 0) return 0;
+            
+            // Return score from the perspective of Team 1 (-1 to 1)
+            return (team1Score - team2Score) / totalPieces;
+        }
+
+
+        // --- AI LOGIC (MCTS) ---
+        
+        class KonversonGameState {
+            constructor(boardState, playerIndex, turn) {
+                this.board = JSON.parse(JSON.stringify(boardState));
+                this.playerIndex = playerIndex;
+                this.turnCount = turn;
+                this.boardSize = boardState.length;
+            }
+
+            getCurrentPlayer() { return COLORS[this.playerIndex]; }
+            
+            getValidMoves() {
+                const singlePlacements = [];
+                 for (let r = 0; r < this.boardSize; r++) {
+                    for (let c = 0; c < this.boardSize; c++) {
+                        if (isValidPlacement(r, c, this.board, [])) {
+                             singlePlacements.push({r, c});
+                        }
+                    }
+                }
+
+                if (this.turnCount === 1) return singlePlacements.map(p => [p]);
+                if (singlePlacements.length === 0) return [[]];
+                if (singlePlacements.length === 1) return [singlePlacements];
+
+                const validPairs = [];
+                for (let i = 0; i < singlePlacements.length; i++) {
+                    for (let j = i + 1; j < singlePlacements.length; j++) {
+                        const p1 = singlePlacements[i];
+                        const p2 = singlePlacements[j];
+                        if (!isNear(p1.r, p1.c, p2.r, p2.c)) {
+                            validPairs.push([p1, p2]);
+                        }
+                    }
+                }
+                
+                return validPairs.length > 0 ? validPairs : singlePlacements.map(p => [p]);
+            }
+            
+            makeMove(move) {
+                const newState = new KonversonGameState(this.board, this.playerIndex, this.turnCount + 1);
+                const color = newState.getCurrentPlayer();
+
+                for(let r=0; r < this.boardSize; r++) {
+                    for(let c=0; c < this.boardSize; c++) {
+                        if(newState.board[r][c]?.color === color && newState.board[r][c]?.posture === 'new') {
+                            newState.board[r][c].posture = 'old';
+                        }
+                    }
+                }
+
+                move.forEach(p => {
+                    newState.board[p.r][p.c] = { color, posture: 'new' };
+                    performConversions(p.r, p.c, color, newState.board);
+                });
+
+                newState.playerIndex = (newState.playerIndex + 1) % COLORS.length;
+                return newState;
+            }
+
+            isTerminal() {
+                return checkWinCondition(this.board) !== null || (this.turnCount > 1 && this.getValidMoves()[0].length === 0);
+            }
+            
+            getWinner() {
+                const winInfo = checkWinCondition(this.board);
+                if (!winInfo) return null;
+                return PLAYER_TEAMS[winInfo.winner];
+            }
+        }
+        
+        class MCTSNode {
+            constructor(gameState, parent = null, move = null) {
+                this.gameState = gameState;
+                this.parent = parent;
+                this.move = move;
+                this.wins = 0;
+                this.visits = 0;
+                this.children = [];
+                this.untriedMoves = this.gameState.getValidMoves();
+            }
+
+            selectChild() {
+                return this.children.sort((a, b) => {
+                    const ucbA = (a.wins / a.visits) + MCTS_EXPLORATION_FACTOR * Math.sqrt(Math.log(this.visits) / a.visits);
+                    const ucbB = (b.wins / b.visits) + MCTS_EXPLORATION_FACTOR * Math.sqrt(Math.log(this.visits) / b.visits);
+                    return ucbB - ucbA;
+                })[0];
+            }
+
+            expand() {
+                if (this.untriedMoves.length === 0) return null;
+                const move = this.untriedMoves.pop();
+                const newGameState = this.gameState.makeMove(move);
+                const childNode = new MCTSNode(newGameState, this, move);
+
+                const heuristicValue = getMoveHeuristic(move, this.gameState.board, this.gameState.getCurrentPlayer());
+                if (heuristicValue > 0) {
+                    childNode.wins = HEURISTIC_PRIOR_WINS;
+                    childNode.visits = HEURISTIC_PRIOR_VISITS;
+                }
+
+                this.children.push(childNode);
+                return childNode;
+            }
+            
+            // --- MODIFIED: Backpropagation now handles scores instead of just wins ---
+            backpropagate(result) { // result is a score from -1 to 1 for Team 1
+                this.visits++;
+                // The parent is the node where the decision was made. We update the score
+                // from the perspective of the player at the parent node.
+                const parentPlayerColor = this.parent ? this.parent.gameState.getCurrentPlayer() : null;
+                if (parentPlayerColor) {
+                    const parentPlayerTeam = PLAYER_TEAMS[parentPlayerColor];
+                    if (parentPlayerTeam === 1) {
+                        this.wins += result; // Add score directly for Team 1
+                    } else { // Team 2
+                        this.wins -= result; // Add the inverted score for Team 2
+                    }
+                }
+                
+                if (this.parent) {
+                    this.parent.backpropagate(result);
+                }
+            }
+        }
+
+        function aiMove() {
+            const rootState = new KonversonGameState(board, currentPlayerIndex, turnCount);
+            const rootNode = new MCTSNode(rootState);
+            const startTime = Date.now();
+            let iterations = 0;
+
+            while (Date.now() - startTime < MCTS_TIME_LIMIT_MS && iterations < MCTS_ITERATIONS) {
+                let node = rootNode;
+                
+                while (node.untriedMoves.length === 0 && node.children.length > 0) node = node.selectChild();
+                if (node.untriedMoves.length > 0) node = node.expand();
+                
+                // --- MODIFIED: Simulation (Rollout) now uses a depth limit and material heuristic ---
+                let rolloutState = node.gameState;
+                let rolloutDepth = 0;
+                while (!rolloutState.isTerminal() && rolloutDepth < ROLLOUT_DEPTH_LIMIT) {
+                    const moves = rolloutState.getValidMoves();
+                    if (moves.length === 0 || (moves.length === 1 && moves[0].length === 0)) break;
+
+                    const goodMoves = moves.filter(m => getMoveHeuristic(m, rolloutState.board, rolloutState.getCurrentPlayer()) > 0);
+                    
+                    let chosenMove;
+                    if (goodMoves.length > 0 && Math.random() < HEURISTIC_ROLLOUT_BIAS) {
+                        chosenMove = goodMoves[Math.floor(Math.random() * goodMoves.length)];
+                    } else {
+                        chosenMove = moves[Math.floor(Math.random() * moves.length)];
+                    }
+                    rolloutState = rolloutState.makeMove(chosenMove);
+                    rolloutDepth++;
+                }
+                
+                // Determine result of the rollout
+                let result;
+                if (rolloutState.isTerminal()) {
+                    const winnerTeam = rolloutState.getWinner();
+                    if (winnerTeam === null) result = 0;      // Draw
+                    else if (winnerTeam === 1) result = 1;  // Team 1 wins
+                    else result = -1;                       // Team 2 wins
+                } else {
+                    // Reached depth limit, use material heuristic
+                    result = evaluateState(rolloutState.board);
+                }
+
+                // Backpropagate the result (now a score from -1 to 1)
+                node.backpropagate(result);
+                iterations++;
+            }
+            
+            // In UCB1, 'wins' is now a score. We still pick the child with the most visits as it's more robust.
+            const bestChild = rootNode.children.sort((a, b) => b.visits - a.visits)[0];
+
+            if (bestChild && bestChild.move) {
+                placementsThisTurn = bestChild.move;
+                
+                for (const p of placementsThisTurn) {
+                    board[p.r][p.c] = { color: getPlayerColor(), posture: 'new' };
+                    performConversions(p.r, p.c, getPlayerColor(), board);
+                    
+                    const winInfo = checkWinCondition(board);
+                    if (winInfo) {
+                        renderBoard();
+                        animateWinningChain(winInfo.path, winInfo.winner);
+                        return;
+                    }
+                }
+                
+                renderBoard();
+                advanceToNextTurn();
+
+            } else {
+                console.error("AI couldn't find a move.");
+                endGame(null, true);
+            }
+        }
+
+        // --- INITIALIZE ---
+        initGame();
+    });
+    </script>
+</body>
+</html>
