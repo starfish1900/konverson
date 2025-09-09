@@ -85,11 +85,12 @@
         const AI_TEAMS = [2];
 
         // --- AI CONFIGURATION (Alpha-Beta) ---
-        const AI_SEARCH_TIME_MS = 3000; // Time limit for AI search
-        const AI_MAX_DEPTH = 10;        // Absolute max depth for iterative deepening
-        const PIECE_VALUE = 100;        // Material value for one piece
-        const CONTACT_BONUS = 10;       // Bonus for move ordering if a placement touches an opponent
-        const WIN_SCORE = 100000;       // A large number representing a winning position
+        const AI_SEARCH_TIME_MS = 3000;
+        const AI_MAX_DEPTH = 10;
+        const PIECE_VALUE = 100;
+        const CONTACT_BONUS = 10;
+        const EXTENT_BONUS_MULTIPLIER = 5; // New constant for pawn island extent bonus
+        const WIN_SCORE = 100000;
 
         // --- DOM ELEMENTS ---
         const boardElement = document.getElementById('board');
@@ -126,7 +127,7 @@
         // --- CORE GAME LOGIC ---
 
         function initGame() {
-            if(aiWorker) aiWorker.terminate(); // Stop any previous AI calculation
+            if(aiWorker) aiWorker.terminate();
             
             BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
             board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
@@ -220,7 +221,7 @@
             updateStatus();
 
             if (!isHumanTurn()) {
-                setTimeout(aiMove, 100); // Short delay to allow UI to update
+                setTimeout(aiMove, 100);
             } else {
                 highlightValidMoves();
             }
@@ -432,7 +433,6 @@
         // --- AI LOGIC (ALPHA-BETA VIA WEB WORKER) ---
 
         function aiMove() {
-            // Create the worker from a Blob URL to keep it in a single file
             const workerCode = document.getElementById('ai-worker-script').textContent;
             const blob = new Blob([workerCode], { type: 'application/javascript' });
             aiWorker = new Worker(URL.createObjectURL(blob));
@@ -459,10 +459,9 @@
                     advanceToNextTurn();
                 } else {
                     console.error("AI couldn't find a valid move in time or at all.");
-                    endGame(null, true); // No valid moves found, it's a draw
+                    endGame(null, true);
                 }
                 
-                // Clean up worker
                 aiWorker.terminate();
                 aiWorker = null;
             };
@@ -473,7 +472,6 @@
                 aiWorker = null;
             };
 
-            // Start the search
             aiWorker.postMessage({
                 board,
                 currentPlayerIndex,
@@ -481,7 +479,7 @@
                 boardSize: BOARD_SIZE,
                 config: {
                     COLORS, ALLIANCES, PLAYER_TEAMS, AI_SEARCH_TIME_MS, AI_MAX_DEPTH,
-                    PIECE_VALUE, CONTACT_BONUS, WIN_SCORE
+                    PIECE_VALUE, CONTACT_BONUS, EXTENT_BONUS_MULTIPLIER, WIN_SCORE
                 }
             });
         }
@@ -493,9 +491,9 @@
 
     <script id="ai-worker-script" type="text/worker">
     'use strict';
-    let CONFIG = {}; // Will be populated by onmessage
+    let CONFIG = {};
     
-    // --- WORKER HELPER FUNCTIONS (mirrored from main script) ---
+    // --- WORKER HELPER FUNCTIONS ---
     const isValid = (r, c) => r >= 0 && r < CONFIG.boardSize && c >= 0 && c < CONFIG.boardSize;
     const getSquexType = (r, c) => {
         const isCorner = (r === 0 || r === CONFIG.boardSize - 1) && (c === 0 || c === CONFIG.boardSize - 1);
@@ -511,11 +509,7 @@
         if (!pieceColor || pieceColor === playerColor) return false;
         return CONFIG.ALLIANCES[playerColor] !== pieceColor;
     };
-    
-    function cloneBoard(board) {
-        return board.map(row => row.map(cell => cell ? {...cell} : null));
-    }
-
+    function cloneBoard(board) { return board.map(row => row.map(cell => cell ? {...cell} : null)); }
     function isValidPlacement(r, c, currentBoard, turnPlacements) {
         if (currentBoard[r][c]) return false;
         for (const p of turnPlacements) { if (isNear(r, c, p.r, p.c)) return false; }
@@ -535,9 +529,10 @@
         }
         return hasRequiredNeighbor;
     }
+    function performConversions(r, c, color, currentBoard) { /* ... identical to main script ... */ }
+    function checkWinCondition(currentBoard) { /* ... identical to main script ... */ }
     
-    // The functions below are duplicated in the worker for self-containment.
-    function performConversions(r, c, color, currentBoard) {
+    performConversions = function(r, c, color, currentBoard) {
         const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
         directions.forEach(([dr, dc]) => {
             const captured = []; let lineColor = null;
@@ -557,7 +552,7 @@
         });
     }
 
-    function checkWinCondition(currentBoard) {
+    checkWinCondition = function(currentBoard) {
         for (const color of CONFIG.COLORS) {
             const hasConnection = (color, board) => {
                 const isCorner = (r, c) => getSquexType(r, c) === 'corner';
@@ -588,7 +583,53 @@
         return null;
     }
 
-    // --- EVALUATION FUNCTION ---
+    // --- NEW: PAWN ISLAND & EXTENT CALCULATION ---
+    function calculateExtentBonus(board, teamId) {
+        let totalExtentBonus = 0;
+        const visited = Array(CONFIG.boardSize).fill(null).map(() => Array(CONFIG.boardSize).fill(false));
+
+        for (let r = 0; r < CONFIG.boardSize; r++) {
+            for (let c = 0; c < CONFIG.boardSize; c++) {
+                const piece = board[r][c];
+                if (piece && CONFIG.PLAYER_TEAMS[piece.color] === teamId && !visited[r][c]) {
+                    // Found the start of a new island, run BFS to find all its pieces
+                    let rowMin = r, rowMax = r, colMin = c, colMax = c;
+                    const queue = [{ r, c }];
+                    visited[r][c] = true;
+                    let head = 0;
+
+                    while(head < queue.length) {
+                        const current = queue[head++];
+                        rowMin = Math.min(rowMin, current.r);
+                        rowMax = Math.max(rowMax, current.r);
+                        colMin = Math.min(colMin, current.c);
+                        colMax = Math.max(colMax, current.c);
+
+                        // Check all 8 neighbors
+                        for (let dr = -1; dr <= 1; dr++) {
+                            for (let dc = -1; dc <= 1; dc++) {
+                                if (dr === 0 && dc === 0) continue;
+                                const nr = current.r + dr;
+                                const nc = current.c + dc;
+
+                                if (isValid(nr, nc) && !visited[nr][nc] && board[nr][nc] && CONFIG.PLAYER_TEAMS[board[nr][nc].color] === teamId) {
+                                    visited[nr][nc] = true;
+                                    queue.push({ r: nr, c: nc });
+                                }
+                            }
+                        }
+                    }
+                    
+                    const extent = Math.max(rowMax - rowMin, colMax - colMin);
+                    // Add a squared bonus to more heavily reward longer chains
+                    totalExtentBonus += extent * extent;
+                }
+            }
+        }
+        return totalExtentBonus * CONFIG.EXTENT_BONUS_MULTIPLIER;
+    }
+
+    // --- UPDATED EVALUATION FUNCTION ---
     function evaluate(board) {
         const winInfo = checkWinCondition(board);
         if (winInfo) {
@@ -596,6 +637,7 @@
             return winningTeam === 1 ? CONFIG.WIN_SCORE : -CONFIG.WIN_SCORE;
         }
 
+        let materialScore = 0;
         let team1Pieces = 0;
         let team2Pieces = 0;
         for (let r = 0; r < CONFIG.boardSize; r++) {
@@ -606,7 +648,12 @@
                 }
             }
         }
-        return (team1Pieces - team2Pieces) * CONFIG.PIECE_VALUE;
+        materialScore = (team1Pieces - team2Pieces) * CONFIG.PIECE_VALUE;
+
+        const extentBonusTeam1 = calculateExtentBonus(board, 1);
+        const extentBonusTeam2 = calculateExtentBonus(board, 2);
+
+        return materialScore + extentBonusTeam1 - extentBonusTeam2;
     }
 
     // --- MOVE GENERATION & ORDERING ---
@@ -669,14 +716,9 @@
     }
 
     // --- ALPHA-BETA SEARCH IMPLEMENTATION ---
-    let startTime;
-    let timeUp;
-    let nodesSearched;
-    let bestMoveRoot;
+    let startTime, timeUp, nodesSearched, bestMoveRoot;
 
     function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
-        // *** TIME CHECK FIX ***
-        // Check the time at regular intervals inside the search
         if (nodesSearched % 200 === 0 && Date.now() - startTime > CONFIG.AI_SEARCH_TIME_MS) {
             timeUp = true;
         }
@@ -763,35 +805,25 @@
         let finalScore = 0;
         let finalDepth = 0;
         
-        // Iterative Deepening Loop
         for (let depth = 1; depth <= CONFIG.AI_MAX_DEPTH; depth++) {
             nodesSearched = 0;
             bestMoveRoot = { move: null, depth: depth };
             
             const score = alphaBeta(board, depth, -Infinity, Infinity, currentPlayerIndex, turnCount);
 
-            // A search is only valid if time has not run out.
-            // If time ran out, the results of this depth are incomplete, so we stick with the
-            // results from the previous, fully-completed depth.
-            if (timeUp) {
-                break;
-            }
+            if (timeUp) break;
             
-            // If the search for this depth completed in time, we can safely update our best move.
             if (bestMoveRoot.move) {
                 finalBestMove = bestMoveRoot.move;
                 finalScore = score;
                 finalDepth = depth;
             } else {
-                // If there's no move, it could be the end of the game or an issue.
-                // We should break and use the last good move we found.
                 break;
             }
         }
         
-        // Post the final best move found from the last *fully completed* depth search.
         self.postMessage({ bestMove: finalBestMove, depth: finalDepth, score: finalScore });
-        self.close(); // Terminate the worker
+        self.close();
     };
     </script>
 </body>
