@@ -17,7 +17,6 @@ function terminateAllWorkers() {
 function setupAndInitWorkers(numWorkers, config, zobrist, zobristT) {
     return new Promise(resolve => {
         if (isInitialized) {
-            // If already initialized, just clear old jobs and resolve
             jobResolvers.clear();
             workers.forEach(worker => {
                 worker.postMessage({
@@ -29,7 +28,6 @@ function setupAndInitWorkers(numWorkers, config, zobrist, zobristT) {
             return;
         }
 
-        let workersReady = 0;
         for (let i = 0; i < numWorkers; i++) {
             const worker = new Worker('helper_worker.js');
             worker.onmessage = (e) => {
@@ -42,12 +40,10 @@ function setupAndInitWorkers(numWorkers, config, zobrist, zobristT) {
             worker.onerror = (err) => console.error("Helper worker error:", err);
             workers.push(worker);
 
-            // Send initialization data once
             worker.postMessage({
                 type: 'init',
                 config, zobrist, zobristT
             });
-            workersReady++;
         }
         isInitialized = true;
         resolve();
@@ -59,7 +55,6 @@ function dispatchJob(jobData) {
         const jobId = nextJobId++;
         jobResolvers.set(jobId, resolve);
         const workerIndex = jobId % workers.length;
-        // KEY CHANGE: The transposition table (`tt`) is no longer sent with the job.
         workers[workerIndex].postMessage({ ...jobData, jobId });
     });
 }
@@ -75,7 +70,6 @@ async function findBestMove(board, currentPlayerIndex, turnCount) {
         return { bestMove: null };
     }
     
-    // As a fallback, always have a move ready
     bestMoveSoFar = rootMoves[0].move;
 
     // Iterative Deepening
@@ -105,10 +99,22 @@ async function findBestMove(board, currentPlayerIndex, turnCount) {
             }
         }
         
-        // Save the best move from the completed depth level
         bestMoveSoFar = bestMoveForDepth;
         bestScoreSoFar = bestScoreForDepth;
         console.log(`Depth ${depth} complete. Best move:`, bestMoveSoFar, "Score:", bestScoreSoFar);
+        
+        // --- START: NEW PV SORTING LOGIC ---
+        // Find the full move object that corresponds to the best move found
+        const bestMoveIndex = rootMoves.findIndex(m => 
+            JSON.stringify(m.move) === JSON.stringify(bestMoveSoFar)
+        );
+
+        // If found, move it to the front of the array for the next iteration
+        if (bestMoveIndex > 0) {
+            const [pvMove] = rootMoves.splice(bestMoveIndex, 1);
+            rootMoves.unshift(pvMove);
+        }
+        // --- END: NEW PV SORTING LOGIC ---
     }
     
     return { bestMove: bestMoveSoFar, score: bestScoreSoFar };
