@@ -9,9 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const AI_TEAMS = [2];
 
     // --- AI CONFIGURATION ---
-    const AI_SEARCH_TIME_MS = 3000;
+    const AI_SEARCH_TIME_MS = 6000;
     const AI_MAX_DEPTH = 24; 
-    const CANDIDATE_SINGLES_LIMIT = 169;
+    const CANDIDATE_SINGLES_LIMIT = 20;
     const PIECE_VALUE = 100;
     const CONVERSION_BONUS_PER_PIECE = 50; // NEW: High bonus for each conversion
     const ADJACENCY_BONUS = 5;             // NEW: Small bonus for touching an enemy
@@ -263,4 +263,5 @@ function initGame() {
         });
     }
     initGame();
+
 });
