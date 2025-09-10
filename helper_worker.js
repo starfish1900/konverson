@@ -4,11 +4,110 @@
 importScripts('game_logic.js');
 
 const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
-// KEY CHANGE: The TT is now a persistent variable inside the worker.
-// It is created once and reused for all subsequent jobs.
+// The TT is a persistent variable inside the worker.
 let transpositionTable = new Map();
 
-// The serial alpha-beta search function, unchanged
+// --- START: NEW QUIESCENCE SEARCH CODE ---
+
+/**
+ * Generates only moves that result in at least one conversion.
+ * It also attaches the number of conversions for sorting and pruning.
+ */
+function getConversionMoves(board, turnCount, playerColor) {
+    const allMoves = getOrderedMoves(board, turnCount, playerColor);
+    const conversionMoves = [];
+
+    for (const moveObj of allMoves) {
+        // To check for conversions, we must simulate the move on a temporary board.
+        // The board state before conversions are calculated is after placements are made.
+        const tempBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
+        moveObj.move.forEach(p => {
+            tempBoard[p.r][p.c] = { color: playerColor, posture: 'new' };
+        });
+
+        let totalConversions = 0;
+        moveObj.move.forEach(p => {
+            totalConversions += getConversions(p.r, p.c, playerColor, tempBoard).length;
+        });
+
+        if (totalConversions > 0) {
+            conversionMoves.push({
+                move: moveObj.move,
+                conversions: totalConversions
+            });
+        }
+    }
+
+    // Sort moves by the number of conversions they generate, most first.
+    return conversionMoves.sort((a, b) => b.conversions - a.conversions);
+}
+
+
+const Q_SEARCH_MAX_DEPTH = 2; // Limit quiescence search to this many extra moves.
+
+function quiescenceSearch(board, depth, alpha, beta, playerIndex, turnCount) {
+    const winInfo = checkWinCondition(board);
+    if (winInfo) return evaluate(board);
+
+    if (depth === 0) {
+        return evaluate(board);
+    }
+    
+    // 1. "Standing Pat" Score: Evaluate the board from the current player's perspective.
+    const stand_pat = evaluate(board);
+    const playerColor = CONFIG.COLORS[playerIndex];
+    const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
+
+    // 2. Standing Pat Cutoff: If the current position is already good enough,
+    // assume we won't make a move that worsens it.
+    if (isMaximizingPlayer) {
+        if (stand_pat >= beta) return beta;
+        if (stand_pat > alpha) alpha = stand_pat;
+    } else { // Minimizing player
+        if (stand_pat <= alpha) return alpha;
+        if (stand_pat < beta) beta = stand_pat;
+    }
+
+    const moves = getConversionMoves(board, turnCount, playerColor);
+    if (moves.length === 0) {
+        return stand_pat; // No captures to explore, return the static evaluation.
+    }
+
+    let bestValue = stand_pat;
+
+    for (const moveObj of moves) {
+        // 3. Delta Pruning: A crucial optimization.
+        // If the potential gain from this move can't possibly raise alpha, prune it.
+        const estimatedGain = moveObj.conversions * CONFIG.PIECE_VALUE;
+        const futilityMargin = CONFIG.PIECE_VALUE; // A buffer, e.g., the value of one piece.
+        
+        if (isMaximizingPlayer) {
+            if (stand_pat + estimatedGain + futilityMargin < alpha) {
+                continue; // This move is unlikely to be good enough, so skip it.
+            }
+        }
+        // Note: Delta pruning is less effective for the minimizing player, so we skip it here for simplicity.
+
+        const newBoard = applyMove(board, moveObj.move, playerColor);
+        const nextPlayerIndex = (playerIndex + 1) % 4;
+        const value = quiescenceSearch(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
+
+        if (isMaximizingPlayer) {
+            bestValue = Math.max(bestValue, value);
+            alpha = Math.max(alpha, bestValue);
+        } else {
+            bestValue = Math.min(bestValue, value);
+            beta = Math.min(beta, bestValue);
+        }
+        if (beta <= alpha) break; // Standard alpha-beta cutoff
+    }
+
+    return bestValue;
+}
+
+// --- END: NEW QUIESCENCE SEARCH CODE ---
+
+
 function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     const originalAlpha = alpha;
     const hash = computeHash(board, playerIndex);
@@ -20,7 +119,8 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     }
 
     if (depth === 0) {
-        return evaluate(board);
+        // MODIFIED LINE: Call quiescence search instead of directly evaluating.
+        return quiescenceSearch(board, Q_SEARCH_MAX_DEPTH, alpha, beta, playerIndex, turnCount);
     }
     
     const winInfo = checkWinCondition(board);
@@ -61,7 +161,6 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
 
 // Listen for jobs from the orchestrator
 self.onmessage = (e) => {
-    // KEY CHANGE: `tt` is NO LONGER passed in the message.
     const { jobId, board, depth, alpha, beta, playerIndex, turnCount, config, zobrist, zobristT } = e.data;
     
     if (e.data.type === 'init') {
