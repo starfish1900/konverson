@@ -35,44 +35,51 @@ document.addEventListener('DOMContentLoaded', () => {
     const isHumanTurn = () => HUMAN_TEAMS.includes(PLAYER_TEAMS[getPlayerColor()]);
     
     // --- CORE GAME LOGIC ---
-    function initGame() {
-        if (aiWorker) aiWorker.terminate();
-        BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
-        
-        // Initialize the shared CONFIG object for game_logic.js
-        CONFIG.boardSize = BOARD_SIZE;
-        CONFIG.COLORS = COLORS;
-        CONFIG.ALLIANCES = ALLIANCES;
-        CONFIG.PLAYER_TEAMS = PLAYER_TEAMS;
-        CONFIG.AI_SEARCH_TIME_MS = AI_SEARCH_TIME_MS;
-        CONFIG.AI_MAX_DEPTH = AI_MAX_DEPTH;
-        CONFIG.CANDIDATE_SINGLES_LIMIT = CANDIDATE_SINGLES_LIMIT;
-        CONFIG.PIECE_VALUE = PIECE_VALUE;
-        CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE;
-        CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;
-        CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
-        CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
-        CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
-        CONFIG.WIN_SCORE = WIN_SCORE;
+    // Inside main.js
 
-        board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-        currentPlayerIndex = 0; turnCount = 0; placementsThisTurn = []; pawnsToPlace = 1; gameOver = false;
-        boardSizeSelector.disabled = false; resetButton.disabled = false;
-        boardElement.innerHTML = '';
-        boardElement.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
-        boardElement.style.gridTemplateRows = `repeat(${BOARD_SIZE}, 1fr)`;
-        for (let r = 0; r < BOARD_SIZE; r++) {
-            for (let c = 0; c < BOARD_SIZE; c++) {
-                const square = document.createElement('div');
-                square.classList.add('board-square', getSquexType(r, c));
-                square.dataset.r = r;
-                square.dataset.c = c;
-                square.addEventListener('click', () => handleSquareClick(r, c));
-                boardElement.appendChild(square);
-            }
+function initGame() {
+    if (aiWorker) aiWorker.terminate();
+    BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
+    
+    // --- THIS IS THE CRITICAL SECTION TO CHECK ---
+    // It must contain the new CONVERSION and ADJACENCY bonus lines
+    // and must NOT contain the old CONTACT_BONUS line.
+
+    CONFIG.boardSize = BOARD_SIZE;
+    CONFIG.COLORS = COLORS;
+    CONFIG.ALLIANCES = ALLIANCES;
+    CONFIG.PLAYER_TEAMS = PLAYER_TEAMS;
+    CONFIG.AI_SEARCH_TIME_MS = AI_SEARCH_TIME_MS;
+    CONFIG.AI_MAX_DEPTH = AI_MAX_DEPTH;
+    CONFIG.CANDIDATE_SINGLES_LIMIT = CANDIDATE_SINGLES_LIMIT;
+    CONFIG.PIECE_VALUE = PIECE_VALUE;
+    CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE; // MUST BE PRESENT
+    CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;                     // MUST BE PRESENT
+    CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
+    CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
+    CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
+    CONFIG.WIN_SCORE = WIN_SCORE;
+    // --- END OF CRITICAL SECTION ---
+
+
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+    currentPlayerIndex = 0; turnCount = 0; placementsThisTurn = []; pawnsToPlace = 1; gameOver = false;
+    boardSizeSelector.disabled = false; resetButton.disabled = false;
+    boardElement.innerHTML = '';
+    boardElement.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+    boardElement.style.gridTemplateRows = `repeat(${BOARD_SIZE}, 1fr)`;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            const square = document.createElement('div');
+            square.classList.add('board-square', getSquexType(r, c));
+            square.dataset.r = r;
+            square.dataset.c = c;
+            square.addEventListener('click', () => handleSquareClick(r, c));
+            boardElement.appendChild(square);
         }
-        startTurn();
     }
+    startTurn();
+}
 
     function renderBoard() {
         for (let r = 0; r < BOARD_SIZE; r++) {
