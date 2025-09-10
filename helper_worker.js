@@ -7,8 +7,6 @@ const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
 // The TT is a persistent variable inside the worker.
 let transpositionTable = new Map();
 
-// --- START: NEW QUIESCENCE SEARCH CODE ---
-
 /**
  * Generates only moves that result in at least one conversion.
  * It also attaches the number of conversions for sorting and pruning.
@@ -18,8 +16,6 @@ function getConversionMoves(board, turnCount, playerColor) {
     const conversionMoves = [];
 
     for (const moveObj of allMoves) {
-        // To check for conversions, we must simulate the move on a temporary board.
-        // The board state before conversions are calculated is after placements are made.
         const tempBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
         moveObj.move.forEach(p => {
             tempBoard[p.r][p.c] = { color: playerColor, posture: 'new' };
@@ -53,13 +49,10 @@ function quiescenceSearch(board, depth, alpha, beta, playerIndex, turnCount) {
         return evaluate(board);
     }
     
-    // 1. "Standing Pat" Score: Evaluate the board from the current player's perspective.
     const stand_pat = evaluate(board);
     const playerColor = CONFIG.COLORS[playerIndex];
     const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
 
-    // 2. Standing Pat Cutoff: If the current position is already good enough,
-    // assume we won't make a move that worsens it.
     if (isMaximizingPlayer) {
         if (stand_pat >= beta) return beta;
         if (stand_pat > alpha) alpha = stand_pat;
@@ -70,23 +63,20 @@ function quiescenceSearch(board, depth, alpha, beta, playerIndex, turnCount) {
 
     const moves = getConversionMoves(board, turnCount, playerColor);
     if (moves.length === 0) {
-        return stand_pat; // No captures to explore, return the static evaluation.
+        return stand_pat;
     }
 
     let bestValue = stand_pat;
 
     for (const moveObj of moves) {
-        // 3. Delta Pruning: A crucial optimization.
-        // If the potential gain from this move can't possibly raise alpha, prune it.
         const estimatedGain = moveObj.conversions * CONFIG.PIECE_VALUE;
-        const futilityMargin = CONFIG.PIECE_VALUE; // A buffer, e.g., the value of one piece.
+        const futilityMargin = CONFIG.PIECE_VALUE;
         
         if (isMaximizingPlayer) {
             if (stand_pat + estimatedGain + futilityMargin < alpha) {
-                continue; // This move is unlikely to be good enough, so skip it.
+                continue;
             }
         }
-        // Note: Delta pruning is less effective for the minimizing player, so we skip it here for simplicity.
 
         const newBoard = applyMove(board, moveObj.move, playerColor);
         const nextPlayerIndex = (playerIndex + 1) % 4;
@@ -99,13 +89,11 @@ function quiescenceSearch(board, depth, alpha, beta, playerIndex, turnCount) {
             bestValue = Math.min(bestValue, value);
             beta = Math.min(beta, bestValue);
         }
-        if (beta <= alpha) break; // Standard alpha-beta cutoff
+        if (beta <= alpha) break;
     }
 
     return bestValue;
 }
-
-// --- END: NEW QUIESCENCE SEARCH CODE ---
 
 
 function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
@@ -119,15 +107,30 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     }
 
     if (depth === 0) {
-        // MODIFIED LINE: Call quiescence search instead of directly evaluating.
         return quiescenceSearch(board, Q_SEARCH_MAX_DEPTH, alpha, beta, playerIndex, turnCount);
     }
     
     const winInfo = checkWinCondition(board);
     if (winInfo) return evaluate(board);
-
+    
     const playerColor = CONFIG.COLORS[playerIndex];
     const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
+
+    // --- START: NEW NULL-MOVE PRUNING LOGIC ---
+    const R = 3; // Depth reduction factor
+    if (depth >= R) {
+        const nextPlayerIndex = (playerIndex + 1) % 4;
+        const nullScore = alphaBeta(board, depth - 1 - R, alpha, beta, nextPlayerIndex, turnCount + 1);
+
+        if (isMaximizingPlayer && nullScore >= beta) {
+            return beta; // Prune
+        }
+        if (!isMaximizingPlayer && nullScore <= alpha) {
+            return alpha; // Prune
+        }
+    }
+    // --- END: NEW NULL-MOVE PRUNING LOGIC ---
+
     const orderedMoves = getOrderedMoves(board, turnCount, playerColor);
     
     if (orderedMoves.length === 0) {
