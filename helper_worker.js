@@ -4,9 +4,11 @@
 importScripts('game_logic.js');
 
 const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
-let transpositionTable;
+// KEY CHANGE: The TT is now a persistent variable inside the worker.
+// It is created once and reused for all subsequent jobs.
+let transpositionTable = new Map();
 
-// The serial alpha-beta search function
+// The serial alpha-beta search function, unchanged
 function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     const originalAlpha = alpha;
     const hash = computeHash(board, playerIndex);
@@ -59,16 +61,21 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
 
 // Listen for jobs from the orchestrator
 self.onmessage = (e) => {
-    const { board, depth, alpha, beta, playerIndex, turnCount, tt, config, zobrist, zobristT } = e.data;
+    // KEY CHANGE: `tt` is NO LONGER passed in the message.
+    const { jobId, board, depth, alpha, beta, playerIndex, turnCount, config, zobrist, zobristT } = e.data;
     
-    // Set up the state for this specific job
-    CONFIG = config;
-    transpositionTable = tt;
-    zobristTable = zobrist;
-    zobristTurn = zobristT;
-
+    if (e.data.type === 'init') {
+        // Initialize the worker's state
+        CONFIG = config;
+        zobristTable = zobrist;
+        zobristTurn = zobristT;
+        // Clear the TT for a new turn
+        transpositionTable.clear();
+        return;
+    }
+    
     const score = alphaBeta(board, depth, alpha, beta, playerIndex, turnCount);
 
-    // Send the result back
-    self.postMessage({ score });
+    // Send the result back, identified by its jobId
+    self.postMessage({ jobId, score });
 };
