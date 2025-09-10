@@ -13,7 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const AI_MAX_DEPTH = 24; 
     const CANDIDATE_SINGLES_LIMIT = 169;
     const PIECE_VALUE = 100;
-    const CONTACT_BONUS = 10;
+    const CONVERSION_BONUS_PER_PIECE = 50; // NEW: High bonus for each conversion
+    const ADJACENCY_BONUS = 5;             // NEW: Small bonus for touching an enemy
     const EXTENT_BONUS_MULTIPLIER = 5;
     const CORNER_PLACEMENT_PENALTY = 200;
     const STATIC_CORNER_PENALTY = 50;
@@ -47,7 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
         CONFIG.AI_MAX_DEPTH = AI_MAX_DEPTH;
         CONFIG.CANDIDATE_SINGLES_LIMIT = CANDIDATE_SINGLES_LIMIT;
         CONFIG.PIECE_VALUE = PIECE_VALUE;
-        CONFIG.CONTACT_BONUS = CONTACT_BONUS;
+        CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE;
+        CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;
         CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
         CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
         CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
@@ -254,5 +256,4 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     initGame();
-
 });

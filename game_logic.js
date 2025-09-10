@@ -128,6 +128,84 @@ function getOrderedMoves(board, turnCount, playerColor) {
 
     const scoredSingles = singlePlacements.map(p => {
         let score = 0;
+        
+        // --- START: MODIFIED HEURISTIC LOGIC ---
+
+        // 1. Calculate high-priority bonus for actual conversions
+        // Create a temporary board to see the result of the placement
+        const tempBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
+        tempBoard[p.r][p.c] = { color: playerColor, posture: 'new' };
+        const conversions = getConversions(p.r, p.c, playerColor, tempBoard);
+        score += conversions.length * CONFIG.CONVERSION_BONUS_PER_PIECE;
+
+        // 2. Calculate low-priority bonus for simple adjacency
+        let adjacencyCount = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const nr = p.r + dr, nc = p.c + dc;
+                // Check on the original board
+                if (isValid(nr, nc) && board[nr][nc] && isEnemy(board[nr][nc].color, playerColor)) {
+                    adjacencyCount++;
+                }
+            }
+        }
+        score += adjacencyCount * CONFIG.ADJACENCY_BONUS;
+        
+        // 3. Apply penalties
+        if (getSquexType(p.r, p.c) === 'corner') {
+            score -= CONFIG.CORNER_PLACEMENT_PENALTY;
+        }
+
+        // --- END: MODIFIED HEURISTIC LOGIC ---
+
+        return { placement: p, score };
+    }).sort((a, b) => b.score - a.score);
+
+    if (pawnsToPlace === 1) {
+        return scoredSingles.map(s => ({ move: [s.placement], score: s.score }));
+    }
+
+    const candidateSingles = scoredSingles.slice(0, CONFIG.CANDIDATE_SINGLES_LIMIT);
+    const candidateMap = new Map(candidateSingles.map(s => [`${s.placement.r},${s.placement.c}`, s.score]));
+    const doubleMoves = [];
+    for (let i = 0; i < candidateSingles.length; i++) {
+        for (let j = i + 1; j < candidateSingles.length; j++) {
+            const p1 = candidateSingles[i].placement;
+            const p2 = candidateSingles[j].placement;
+            if (!isNear(p1.r, p1.c, p2.r, p2.c)) {
+                const score1 = candidateMap.get(`${p1.r},${p1.c}`) || 0;
+                const score2 = candidateMap.get(`${p2.r},${p2.c}`) || 0;
+                doubleMoves.push({ move: [p1, p2], score: score1 + score2 });
+            }
+        }
+    }
+    doubleMoves.sort((a, b) => b.score - a.score);
+
+    if (doubleMoves.length > 0) return doubleMoves;
+
+    if (singlePlacements.length >= 2) { // Fallback for no valid doubles in candidates
+        for (let i = 0; i < singlePlacements.length; i++) {
+            for (let j = i + 1; j < singlePlacements.length; j++) {
+                const p1 = singlePlacements[i], p2 = singlePlacements[j];
+                if (!isNear(p1.r, p1.c, p2.r, p2.c)) return [{ move: [p1, p2], score: 0 }];
+            }
+        }
+    }
+    return scoredSingles.length > 0 ? [{ move: [scoredSingles[0].placement], score: scoredSingles[0].score }] : [];
+}
+
+    const singlePlacements = [];
+    for (let r = 0; r < CONFIG.boardSize; r++) {
+        for (let c = 0; c < CONFIG.boardSize; c++) {
+            if (isValidPlacement(r, c, board, [])) singlePlacements.push({ r, c });
+        }
+    }
+    const pawnsToPlace = turnCount === 1 ? 1 : (singlePlacements.length >= 2 ? 2 : singlePlacements.length);
+    if (pawnsToPlace === 0) return [];
+
+    const scoredSingles = singlePlacements.map(p => {
+        let score = 0;
         if (getSquexType(p.r, p.c) === 'corner') score -= CONFIG.CORNER_PLACEMENT_PENALTY;
         for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {
