@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konverson Game (Alpha-Beta AI)</title>
+    <title>Konverson Game (Parallel AI)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
@@ -21,7 +21,6 @@
         .board-container { display: grid; width: 90vw; height: 90vw; max-width: 700px; max-height: 700px; background-color: var(--board-bg); border-radius: 12px; box-shadow: 0 10px 20px rgba(0,0,0,0.3), 0 6px 6px rgba(0,0,0,0.25); padding: 10px; gap: 4px; }
         .board-square { width: 100%; height: 100%; border-radius: 4px; display: flex; justify-content: center; align-items: center; transition: background-color 0.2s ease, box-shadow 0.2s ease; background-color: #2a2a2a; }
         
-        /* New: Board coloring for zones */
         .board-square.interior { background-color: #313131; }
         .board-square.preborder { background-color: #2e2e2e; }
         .board-square.border { background-color: #2a2a2a; }
@@ -90,7 +89,7 @@
         const HUMAN_TEAMS = [1];
         const AI_TEAMS = [2];
 
-        // --- AI CONFIGURATION (Alpha-Beta) ---
+        // --- AI CONFIGURATION ---
         const AI_SEARCH_TIME_MS = 3000;
         const AI_MAX_DEPTH = 24; 
         const CANDIDATE_SINGLES_LIMIT = 10;
@@ -138,7 +137,7 @@
             for (let r = 0; r < BOARD_SIZE; r++) {
                 for (let c = 0; c < BOARD_SIZE; c++) {
                     const square = document.createElement('div');
-                    square.classList.add('board-square', getSquexType(r, c)); // Added class for coloring
+                    square.classList.add('board-square', getSquexType(r, c));
                     square.dataset.r = r;
                     square.dataset.c = c;
                     square.addEventListener('click', () => handleSquareClick(r, c));
@@ -147,6 +146,7 @@
             }
             startTurn();
         }
+
         function renderBoard() {
             for (let r = 0; r < BOARD_SIZE; r++) {
                 for (let c = 0; c < BOARD_SIZE; c++) {
@@ -167,6 +167,7 @@
                 if(square) square.classList.add('selected-placement');
             });
         }
+
         function updateStatus() {
             if (gameOver) return;
             const color = getPlayerColor();
@@ -177,6 +178,7 @@
             turnColorIndicator.style.backgroundColor = cssVarColor;
             infoIndicator.textContent = isHumanTurn() ? `Place ${pawnsToPlace - placementsThisTurn.length} more pawn(s).` : 'AI is thinking...';
         }
+
         function startTurn() {
             turnCount++;
             const color = getPlayerColor();
@@ -202,6 +204,7 @@
                 highlightValidMoves();
             }
         }
+
         function handleSquareClick(r, c) {
             if (gameOver || !isHumanTurn() || !isValidPlacement(r, c, board, placementsThisTurn)) return;
             
@@ -223,10 +226,12 @@
                 updateStatus();
             }
         }
+
         function advanceToNextTurn() {
             currentPlayerIndex = (currentPlayerIndex + 1) % COLORS.length;
             startTurn();
         }
+
         function getAllValidSinglePlacements(currentBoard) {
             const placements = [];
             for (let r = 0; r < BOARD_SIZE; r++) {
@@ -237,41 +242,30 @@
             return placements;
         }
         
-        // --- **RESTORED** Correct Placement Logic ---
         function isValidPlacement(r, c, currentBoard, turnPlacements) {
             if (currentBoard[r][c]) return false;
             for (const p of turnPlacements) { if (isNear(r, c, p.r, p.c)) return false; }
-            
             const type = getSquexType(r, c);
             if (type === 'interior') return true;
-
             let isBoardEmpty = true;
             for(let i = 0; i < currentBoard.length; i++) {
                 for(let j = 0; j < currentBoard[i].length; j++) {
-                    if (currentBoard[i][j]) {
-                        isBoardEmpty = false;
-                        break;
-                    }
+                    if (currentBoard[i][j]) { isBoardEmpty = false; break; }
                 }
                 if (!isBoardEmpty) break;
             }
             if (isBoardEmpty && turnPlacements.length === 0) return false;
-
             let hasRequiredNeighbor = false;
             for (let dr = -1; dr <= 1; dr++) {
                 for (let dc = -1; dc <= 1; dc++) {
                     if (dr === 0 && dc === 0) continue;
-                    const nr = r + dr;
-                    const nc = c + dc;
+                    const nr = r + dr, nc = c + dc;
                     if (!isValid(nr, nc) || !currentBoard[nr][nc]) continue;
-
                     const neighborType = getSquexType(nr, nc);
                     if (type === 'preborder' && neighborType === 'interior') hasRequiredNeighbor = true;
                     if (type === 'border' && neighborType === 'preborder') hasRequiredNeighbor = true;
-                    if (type === 'corner') {
-                         if (Math.abs(dr) === 1 && Math.abs(dc) === 1 && neighborType === 'preborder') {
-                             hasRequiredNeighbor = true;
-                         }
+                    if (type === 'corner' && Math.abs(dr) === 1 && Math.abs(dc) === 1 && neighborType === 'preborder') {
+                        hasRequiredNeighbor = true;
                     }
                 }
             }
@@ -286,6 +280,7 @@
                 }
             }
         }
+
         function performConversions(r, c, color, currentBoard) {
             const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
             directions.forEach(([dr, dc]) => {
@@ -305,6 +300,7 @@
                 }
             });
         }
+
         function checkWinCondition(currentBoard) {
             for (const color of COLORS) {
                 const path = hasConnection(color, currentBoard);
@@ -312,6 +308,7 @@
             }
             return null;
         }
+
         function hasConnection(color, currentBoard) {
             const isCorner = (r, c) => getSquexType(r, c) === 'corner';
             let visitedNS = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
@@ -324,6 +321,7 @@
             }
             return null;
         }
+
         function bfs(startR, startC, color, targetSide, visited, currentBoard) {
             if (visited[startR][startC]) return null;
             const queue = [{ r: startR, c: startC }], parent = new Map();
@@ -345,12 +343,14 @@
             while (current) { path.unshift(current); current = parent.get(`${current.r},${current.c}`); }
             return path;
         }
+
         function animateWinningChain(path, winner) {
             gameOver = true; boardSizeSelector.disabled = true; resetButton.disabled = true;
             document.querySelectorAll('.board-square').forEach(s => s.classList.remove('valid-move', 'selected-placement'));
             path.forEach(({r, c}) => { if (boardElement.children[r * BOARD_SIZE + c]) boardElement.children[r * BOARD_SIZE + c].classList.add('winning-piece'); });
             setTimeout(() => endGame(winner), 3000);
         }
+
         function endGame(winner, isDraw = false) {
             if (aiWorker) { aiWorker.terminate(); aiWorker = null; }
             gameOver = true; boardSizeSelector.disabled = false; resetButton.disabled = false;
@@ -364,286 +364,68 @@
                 infoIndicator.textContent = "Game Over. Reset to play again."; turnColorIndicator.style.backgroundColor = cssVarColor;
             }
         }
+        
         resetButton.addEventListener('click', initGame);
         boardSizeSelector.addEventListener('change', initGame);
        
         function aiMove() {
-            const workerCode = document.getElementById('ai-worker-script').textContent;
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            aiWorker = new Worker(URL.createObjectURL(blob));
+            // Terminate any existing worker before starting a new one
+            if (aiWorker) {
+                aiWorker.terminate();
+            }
+
+            // Create a new worker instance pointing to our orchestrator
+            aiWorker = new Worker('ai_orchestrator.js');
+
             aiWorker.onmessage = (e) => {
                 const { bestMove, depth, score, nodes } = e.data;
-                console.log(`AI Result: Depth=${depth}, Score=${score}, Nodes=${nodes}, Move=`, bestMove);
+                console.log(`AI Result: Depth=${depth}, Score=${score}, Move=`, bestMove);
+                
                 if (bestMove && bestMove.length > 0) {
                     placementsThisTurn = bestMove;
                     for (const p of placementsThisTurn) {
                         board[p.r][p.c] = { color: getPlayerColor(), posture: 'new' };
                         performConversions(p.r, p.c, getPlayerColor(), board);
                     }
-                    renderBoard(); 
+                    renderBoard();
                     const winInfo = checkWinCondition(board);
-                    if (winInfo) { animateWinningChain(winInfo.path, winInfo.winner); return; }
+                    if (winInfo) {
+                        animateWinningChain(winInfo.path, winInfo.winner);
+                        return;
+                    }
                     advanceToNextTurn();
                 } else {
-                    console.error("AI couldn't find a valid move in time or at all.");
-                    endGame(null, true);
+                    console.error("AI couldn't find a valid move.");
+                    endGame(null, true); // End in a draw if no move is found
                 }
-                aiWorker.terminate(); aiWorker = null;
-            };
-            aiWorker.onerror = (e) => {
-                console.error('Error in AI Worker:', e.message, e);
-                aiWorker.terminate();
+                aiWorker.terminate(); // Terminate after the move is done
                 aiWorker = null;
             };
+
+            aiWorker.onerror = (e) => {
+                console.error('Error in AI Orchestrator Worker:', e.message, e);
+                if (aiWorker) {
+                    aiWorker.terminate();
+                    aiWorker = null;
+                }
+            };
+
+            // Send the game state to the orchestrator to start the search
             aiWorker.postMessage({
-                board, currentPlayerIndex, turnCount, boardSize: BOARD_SIZE,
-                config: { COLORS, ALLIANCES, PLAYER_TEAMS, AI_SEARCH_TIME_MS, AI_MAX_DEPTH,
-                    CANDIDATE_SINGLES_LIMIT, PIECE_VALUE, CONTACT_BONUS, EXTENT_BONUS_MULTIPLIER, 
-                    CORNER_PLACEMENT_PENALTY, STATIC_CORNER_PENALTY, WIN_SCORE }
+                board,
+                currentPlayerIndex,
+                turnCount,
+                boardSize: BOARD_SIZE,
+                config: {
+                    COLORS, ALLIANCES, PLAYER_TEAMS, AI_SEARCH_TIME_MS, AI_MAX_DEPTH,
+                    CANDIDATE_SINGLES_LIMIT, PIECE_VALUE, CONTACT_BONUS, EXTENT_BONUS_MULTIPLIER,
+                    CORNER_PLACEMENT_PENALTY, STATIC_CORNER_PENALTY, WIN_SCORE
+                }
             });
         }
         initGame();
     });
     </script>
 
-    <script id="ai-worker-script" type="text/worker">
-    'use strict';
-    let CONFIG = {};
-    const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
-    let zobristTable, zobristTurn, transpositionTable;
-    
-    function initZobrist(boardSize) {
-        const maxPieces = 8; // 4 colors, 2 postures
-        zobristTable = Array(boardSize).fill(null).map(() => 
-            Array(boardSize).fill(null).map(() => 
-                Array.from({ length: maxPieces }, () => Math.floor(Math.random() * 2**32))
-            )
-        );
-        zobristTurn = Array.from({ length: 4 }, () => Math.floor(Math.random() * 2**32));
-    }
-
-    function getPieceIndex(piece) {
-        const colorMap = {'A': 0, 'B': 1, 'C': 2, 'D': 3};
-        const postureOffset = piece.posture === 'new' ? 0 : 4;
-        return colorMap[piece.color] + postureOffset;
-    }
-
-    function computeHash(board, playerIndex) {
-        let h = 0;
-        for (let r = 0; r < CONFIG.boardSize; r++) {
-            for (let c = 0; c < CONFIG.boardSize; c++) {
-                if (board[r][c]) h ^= zobristTable[r][c][getPieceIndex(board[r][c])];
-            }
-        }
-        h ^= zobristTurn[playerIndex];
-        return h;
-    }
-
-    const isValid = (r, c) => r >= 0 && r < CONFIG.boardSize && c >= 0 && c < CONFIG.boardSize;
-    const getSquexType = (r, c) => {
-        const isCorner = (r === 0 || r === CONFIG.boardSize - 1) && (c === 0 || c === CONFIG.boardSize - 1);
-        if (isCorner) return 'corner';
-        const isBorder = r === 0 || r === CONFIG.boardSize - 1 || c === 0 || c === CONFIG.boardSize - 1;
-        if (isBorder) return 'border';
-        const isPreborder = (r === 1 || r === CONFIG.boardSize - 2) || (c === 1 || c === CONFIG.boardSize - 2);
-        if (isPreborder) return 'preborder';
-        return 'interior';
-    };
-    const isNear = (r1, c1, r2, c2) => Math.abs(r1 - r2) <= 2 && Math.abs(c1 - c2) <= 2;
-    const isEnemy = (pieceColor, playerColor) => pieceColor && pieceColor !== playerColor && CONFIG.ALLIANCES[playerColor] !== pieceColor;
-    
-    // --- **RESTORED** Correct Placement Logic for AI ---
-    function isValidPlacement(r, c, currentBoard, turnPlacements) {
-        if (currentBoard[r][c]) return false;
-        for (const p of turnPlacements) { if (isNear(r, c, p.r, p.c)) return false; }
-        
-        const type = getSquexType(r, c);
-        if (type === 'interior') return true;
-
-        let isBoardEmpty = true;
-        for(let i = 0; i < currentBoard.length; i++) {
-            for(let j = 0; j < currentBoard[i].length; j++) {
-                if (currentBoard[i][j]) {
-                    isBoardEmpty = false;
-                    break;
-                }
-            }
-            if (!isBoardEmpty) break;
-        }
-        if (isBoardEmpty && turnPlacements.length === 0) return false;
-
-        let hasRequiredNeighbor = false;
-        for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-                const nr = r + dr;
-                const nc = c + dc;
-                if (!isValid(nr, nc) || !currentBoard[nr][nc]) continue;
-
-                const neighborType = getSquexType(nr, nc);
-                if (type === 'preborder' && neighborType === 'interior') hasRequiredNeighbor = true;
-                if (type === 'border' && neighborType === 'preborder') hasRequiredNeighbor = true;
-                if (type === 'corner') {
-                     if (Math.abs(dr) === 1 && Math.abs(dc) === 1 && neighborType === 'preborder') {
-                         hasRequiredNeighbor = true;
-                     }
-                }
-            }
-        }
-        return hasRequiredNeighbor;
-    }
-    
-    function getConversions(r, c, color, currentBoard) {
-        const changes = [];
-        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
-        directions.forEach(([dr, dc]) => {
-            const captured = []; let lineColor = null;
-            for (let i = 1; i < CONFIG.boardSize; i++) {
-                const cr = r + i * dr, cc = c + i * dc;
-                if (!isValid(cr, cc) || !currentBoard[cr][cc]) break;
-                const piece = currentBoard[cr][cc];
-                if (i === 1) {
-                    if (piece.posture === 'new' || piece.color === color) break;
-                    lineColor = piece.color; captured.push({ r: cr, c: cc });
-                } else {
-                    if (piece.color === lineColor && piece.posture === 'old') captured.push({ r: cr, c: cc });
-                    else if (piece.color === color) { captured.forEach(p => changes.push(p)); break; }
-                    else break;
-                }
-            }
-        });
-        return changes;
-    }
-    
-    function applyMove(board, move, playerColor, currentHash) {
-        let newHash = currentHash;
-        const newBoard = board.map(row => row.map(cell => cell ? {...cell} : null));
-
-        for(let r=0; r < CONFIG.boardSize; r++) {
-            for(let c=0; c < CONFIG.boardSize; c++) {
-                const piece = newBoard[r][c];
-                if(piece?.color === playerColor && piece?.posture === 'new') {
-                    newHash ^= zobristTable[r][c][getPieceIndex(piece)];
-                    piece.posture = 'old';
-                    newHash ^= zobristTable[r][c][getPieceIndex(piece)];
-                }
-            }
-        }
-        
-        move.forEach(p => {
-            const newPiece = { color: playerColor, posture: 'new' };
-            newHash ^= zobristTable[p.r][p.c][getPieceIndex(newPiece)];
-            newBoard[p.r][p.c] = newPiece;
-        });
-
-        move.forEach(p => {
-            const conversions = getConversions(p.r, p.c, playerColor, newBoard);
-            conversions.forEach(conv => {
-                const oldPiece = newBoard[conv.r][conv.c];
-                newHash ^= zobristTable[conv.r][conv.c][getPieceIndex(oldPiece)];
-                newBoard[conv.r][conv.c].color = playerColor;
-                newHash ^= zobristTable[conv.r][conv.c][getPieceIndex(newBoard[conv.r][conv.c])];
-            });
-        });
-
-        return { newBoard, newHash };
-    }
-
-    let evaluate, getOrderedMoves, checkWinCondition;
-    
-    let startTime, timeUp, nodesSearched;
-    function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount, hash) {
-        const originalAlpha = alpha;
-        const ttEntry = transpositionTable.get(hash);
-        if (ttEntry && ttEntry.depth >= depth) {
-            if (ttEntry.flag === TT_EXACT) return ttEntry.score;
-            if (ttEntry.flag === TT_ALPHA && ttEntry.score <= alpha) return alpha;
-            if (ttEntry.flag === TT_BETA && ttEntry.score >= beta) return beta;
-        }
-
-        if (depth === 0) {
-            nodesSearched++;
-            return evaluate(board);
-        }
-
-        if (nodesSearched % 1000 === 0 && Date.now() - startTime > CONFIG.AI_SEARCH_TIME_MS) {
-            timeUp = true;
-        }
-        if (timeUp) return 0;
-        
-        nodesSearched++;
-        const winInfo = checkWinCondition(board);
-        if (winInfo) return evaluate(board);
-        
-        const playerColor = CONFIG.COLORS[playerIndex];
-        const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
-        const orderedMoves = getOrderedMoves(board, turnCount, playerColor);
-        if (orderedMoves.length === 0) return evaluate(board);
-
-        let bestValue = isMaximizingPlayer ? -Infinity : Infinity;
-        let bestMoveForNode = orderedMoves[0].move;
-
-        for (const moveObj of orderedMoves) {
-            const { newBoard, newHash } = applyMove(board, moveObj.move, playerColor, hash);
-            const nextPlayerIndex = (playerIndex + 1) % 4;
-            const newHashWithTurn = newHash ^ zobristTurn[playerIndex] ^ zobristTurn[nextPlayerIndex];
-
-            const value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1, newHashWithTurn);
-
-            if (isMaximizingPlayer) {
-                if (value > bestValue) { bestValue = value; bestMoveForNode = moveObj.move; }
-                alpha = Math.max(alpha, bestValue);
-            } else {
-                if (value < bestValue) { bestValue = value; bestMoveForNode = moveObj.move; }
-                beta = Math.min(beta, bestValue);
-            }
-            if (beta <= alpha) break;
-        }
-
-        let flag = TT_EXACT;
-        if (bestValue <= originalAlpha) flag = TT_BETA;
-        else if (bestValue >= beta) flag = TT_ALPHA;
-        transpositionTable.set(hash, { score: bestValue, depth, flag, move: bestMoveForNode });
-        
-        return bestValue;
-    }
-
-    self.onmessage = (e) => {
-        const { board, currentPlayerIndex, turnCount, boardSize, config } = e.data;
-        CONFIG = config; CONFIG.boardSize = boardSize;
-        
-        evaluate=function(e){const t=checkWinCondition(e);if(t){return(CONFIG.PLAYER_TEAMS[t.winner]===1?CONFIG.WIN_SCORE:-CONFIG.WIN_SCORE)}let o=0,r=0,n=0,a=0,i=0,l=0;const s=Array(CONFIG.boardSize).fill(null).map(()=>Array(CONFIG.boardSize).fill(!1));for(let c=0;c<CONFIG.boardSize;c++)for(let d=0;d<CONFIG.boardSize;d++){const u=e[c][d];if(u){const p=CONFIG.PLAYER_TEAMS[u.color];if(p===1?(o++,getSquexType(c,d)==="corner"&&(n+=CONFIG.STATIC_CORNER_PENALTY)):(r++,getSquexType(c,d)==="corner"&&(a+=CONFIG.STATIC_CORNER_PENALTY)),!s[c][d]){let m=c,f=c,h=d,g=d;const b=[{r:c,c:d}];s[c][d]=!0;let w=0;for(;w<b.length;){const V=b[w++];m=Math.min(m,V.r),f=Math.max(f,V.r),h=Math.min(h,V.c),g=Math.max(g,V.c);for(let I=-1;I<=1;I++)for(let S=-1;S<=1;S++){if(I===0&&S===0)continue;const C=V.r+I,y=V.c+S;isValid(C,y)&&!s[C][y]&&e[C][y]&&CONFIG.PLAYER_TEAMS[e[C][y].color]===p&&(s[C][y]=!0,b.push({r:C,c:y}))}}const v=Math.max(f-m,g-h),E=v*v*CONFIG.EXTENT_BONUS_MULTIPLIER;p===1?i+=E:l+=E}}}const M=(o-r)*CONFIG.PIECE_VALUE;return M+i-l-n+a};
-        getOrderedMoves=function(e,t,o){const r=[];for(let n=0;n<CONFIG.boardSize;n++)for(let a=0;a<CONFIG.boardSize;a++)isValidPlacement(n,a,e,[])&&r.push({r:n,c:a});const i=t===1?1:r.length>=2?2:r.length;if(i===0)return[];const l=r.map(n=>{let a=0;getSquexType(n.r,n.c)==="corner"&&(a-=CONFIG.CORNER_PLACEMENT_PENALTY);for(let i=-1;i<=1;i++)for(let l=-1;l<=1;l++){if(i===0&&l===0)continue;const s=n.r+i,c=n.c+l;isValid(s,c)&&e[s][c]&&isEnemy(e[s][c].color,o)&&(a+=CONFIG.CONTACT_BONUS)}return{placement:n,score:a}}).sort((n,a)=>a.score-n.score);if(i===1)return l.map(n=>({move:[n.placement],score:n.score}));const s=l.slice(0,CONFIG.CANDIDATE_SINGLES_LIMIT),c=new Map(s.map(n=>[`${n.placement.r},${n.placement.c}`,n.score])),d=[];for(let u=0;u<s.length;u++)for(let p=u+1;p<s.length;p++){const m=s[u].placement,f=s[p].placement;if(!isNear(m.r,m.c,f.r,f.c)){const h=c.get(`${m.r},${m.c}`)||0,g=c.get(`${f.r},${f.c}`)||0;d.push({move:[m,f],score:h+g})}}if(d.sort((n,a)=>a.score-n.score),d.length>0)return d;if(r.length>=2){for(let b=0;b<r.length;b++)for(let w=b+1;w<r.length;w++){const V=r[b],I=r[w];if(!isNear(V.r,V.c,I.r,I.c))return[{move:[V,I],score:0}]}}return l.length>0?[{move:[l[0].placement],score:l[0].score}]:[]};
-        checkWinCondition=function(e){for(const t of CONFIG.COLORS){const o=(t,o)=>{const r=(e,t)=>getSquexType(e,t)==="corner",n=Array(CONFIG.boardSize).fill(null).map(()=>Array(CONFIG.boardSize).fill(!1));for(let a=0;a<CONFIG.boardSize;a++)if(o[0][a]?.color===t&&!r(0,a)&&i(0,a,t,"S",n,o))return!0;const l=Array(CONFIG.boardSize).fill(null).map(()=>Array(CONFIG.boardSize).fill(!1));for(let s=0;s<CONFIG.boardSize;s++)if(o[s][0]?.color===t&&!r(s,0)&&i(s,0,t,"E",l,o))return!0;return!1},i=(t,o,r,n,a,l)=>{const s=[{r:t,c:o}];a[t][o]=!0;let c=0;for(;c<s.length;){const{r:d,c:u}=s[c++];if(n==="S"&&d===CONFIG.boardSize-1||n==="E"&&u===CONFIG.boardSize-1)return!0;for(let p=-1;p<=1;p++)for(let m=-1;m<=1;m++){if(p===0&&m===0)continue;const f=d+p,h=u+m;isValid(f,h)&&!a[f][h]&&l[f][h]?.color===r&&getSquexType(f,h)!=="corner"&&(a[f][h]=!0,s.push({r:f,c:h}))}}return!1};if(o(t,e))return{winner:t}}return null};
-        
-        initZobrist(boardSize);
-        transpositionTable = new Map();
-        startTime = Date.now(); timeUp = false;
-        let finalBestMove = null, finalScore = 0, finalDepth = 0;
-        
-        for (let depth = 1; depth <= CONFIG.AI_MAX_DEPTH; depth++) {
-            nodesSearched = 0;
-            const rootHash = computeHash(board, currentPlayerIndex);
-            const score = alphaBeta(board, depth, -Infinity, Infinity, currentPlayerIndex, turnCount, rootHash);
-            
-            if (timeUp) break;
-            
-            const rootEntry = transpositionTable.get(rootHash);
-            if (rootEntry?.move) {
-                finalBestMove = rootEntry.move;
-                finalScore = score;
-                finalDepth = depth;
-            } else {
-                if (!finalBestMove) {
-                    const fallbackMoves = getOrderedMoves(board, turnCount, CONFIG.COLORS[currentPlayerIndex]);
-                    if (fallbackMoves.length > 0) finalBestMove = fallbackMoves[0].move;
-                }
-                break;
-            }
-        }
-        self.postMessage({ bestMove: finalBestMove, depth: finalDepth, score: finalScore, nodes: nodesSearched });
-        self.close();
-    };
-    </script>
 </body>
 </html>
