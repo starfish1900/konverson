@@ -7,6 +7,10 @@ const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
 // The TT is a persistent variable inside the worker.
 let transpositionTable = new Map();
 
+// --- NEW: HISTORY HEURISTIC TABLE ---
+// Stores scores for individual placements that have proven effective.
+let historyTable = [];
+
 /**
  * Generates only moves that result in at least one conversion.
  * It also attaches the number of conversions for sorting and pruning.
@@ -100,6 +104,7 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     const originalAlpha = alpha;
     const hash = computeHash(board, playerIndex);
     const ttEntry = transpositionTable.get(hash);
+
     if (ttEntry && ttEntry.depth >= depth) {
         if (ttEntry.flag === TT_EXACT) return ttEntry.score;
         if (ttEntry.flag === TT_ALPHA && ttEntry.score <= alpha) return alpha;
@@ -116,11 +121,13 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     const playerColor = CONFIG.COLORS[playerIndex];
     const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
 
-    // --- START: NEW NULL-MOVE PRUNING LOGIC ---
-    const R = 3; // Depth reduction factor
-    if (depth >= R) {
+    // --- NULL-MOVE PRUNING LOGIC ---
+    const R_NMP = 3; // Depth reduction factor for Null-Move Pruning
+    if (depth >= R_NMP) {
         const nextPlayerIndex = (playerIndex + 1) % 4;
-        const nullScore = alphaBeta(board, depth - 1 - R, alpha, beta, nextPlayerIndex, turnCount + 1);
+        // Note: The original implementation had a bug passing `alpha, beta` here.
+        // For a null move, the side to move flips, so the bounds for the recursive call must also flip and be negated.
+        const nullScore = -alphaBeta(board, depth - 1 - R_NMP, -beta, -alpha, nextPlayerIndex, turnCount + 1);
 
         if (isMaximizingPlayer && nullScore >= beta) {
             return beta; // Prune
@@ -129,20 +136,51 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
             return alpha; // Prune
         }
     }
-    // --- END: NEW NULL-MOVE PRUNING LOGIC ---
+    // --- END NULL-MOVE PRUNING ---
 
     const orderedMoves = getOrderedMoves(board, turnCount, playerColor);
     
+    // --- APPLY HISTORY HEURISTIC FOR MOVE ORDERING ---
+    // Before searching, we enhance the sorting with our history scores.
+    for (const moveObj of orderedMoves) {
+        let historyScore = 0;
+        for (const placement of moveObj.move) {
+            historyScore += historyTable[placement.r][placement.c];
+        }
+        moveObj.score += historyScore; // Add history bonus to the static score
+    }
+    orderedMoves.sort((a, b) => b.score - a.score); // Re-sort with the new scores
+
     if (orderedMoves.length === 0) {
         return evaluate(board);
     }
 
     let bestValue = isMaximizingPlayer ? -Infinity : Infinity;
+    let moveIndex = 0; // --- Counter for Late Move Reductions ---
 
     for (const moveObj of orderedMoves) {
         const newBoard = applyMove(board, moveObj.move, playerColor);
         const nextPlayerIndex = (playerIndex + 1) % 4;
-        const value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
+        
+        let value;
+        // --- LATE MOVE REDUCTIONS (LMR) LOGIC ---
+        const R_LMR = 1; // Reduction factor
+        // Conditions: Don't reduce at low depths, and don't reduce the first few "best" moves.
+        if (depth >= 3 && moveIndex >= 2) {
+            // Search with a reduced depth first
+            value = alphaBeta(newBoard, depth - 1 - R_LMR, alpha, beta, nextPlayerIndex, turnCount + 1);
+
+            // If the reduced search looks promising, re-search at full depth
+            if ((isMaximizingPlayer && value > alpha) || (!isMaximizingPlayer && value < beta)) {
+                 value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
+            }
+        } else {
+            // Normal full-depth search for the first few moves
+            value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
+        }
+        // --- END LMR LOGIC ---
+
+        moveIndex++; // Increment move counter
 
         if (isMaximizingPlayer) {
             bestValue = Math.max(bestValue, value);
@@ -151,7 +189,15 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
             bestValue = Math.min(bestValue, value);
             beta = Math.min(beta, bestValue);
         }
-        if (beta <= alpha) break;
+
+        if (beta <= alpha) {
+            // --- UPDATE HISTORY TABLE ON CUTOFF ---
+            // This move was good, so we reward its placements.
+            for (const placement of moveObj.move) {
+                 historyTable[placement.r][placement.c] += depth * depth;
+            }
+            break;
+        }
     }
 
     let flag = TT_EXACT;
@@ -164,20 +210,23 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
 
 // Listen for jobs from the orchestrator
 self.onmessage = (e) => {
-    const { jobId, board, depth, alpha, beta, playerIndex, turnCount, config, zobrist, zobristT } = e.data;
-    
     if (e.data.type === 'init') {
-        // Initialize the worker's state
-        CONFIG = config;
-        zobristTable = zobrist;
-        zobristTurn = zobristT;
-        // Clear the TT for a new turn
+        CONFIG = e.data.config;
+        zobristTable = e.data.zobrist;
+        zobristTurn = e.data.zobristT;
         transpositionTable.clear();
         return;
     }
     
+    const { jobId, board, depth, alpha, beta, playerIndex, turnCount, config } = e.data;
+    CONFIG = config; // Make sure config is fresh for each job
+
+    // --- INITIALIZE HISTORY TABLE FOR EACH NEW SEARCH ---
+    if (!historyTable.length || historyTable.length !== CONFIG.boardSize) {
+        historyTable = Array(CONFIG.boardSize).fill(0).map(() => Array(CONFIG.boardSize).fill(0));
+    }
+
     const score = alphaBeta(board, depth, alpha, beta, playerIndex, turnCount);
 
-    // Send the result back, identified by its jobId
     self.postMessage({ jobId, score });
 };
