@@ -9,12 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const AI_TEAMS = [2];
 
     // --- AI CONFIGURATION ---
-    const AI_SEARCH_TIME_MS = 6000;
-    const AI_MAX_DEPTH = 24; 
-    const CANDIDATE_SINGLES_LIMIT = 20;
+    const AI_SEARCH_TIME_MS = 6000; // Updated to 6 seconds
+    const AI_MAX_DEPTH = 24;
+    const CANDIDATE_SINGLES_LIMIT = 30; // Tuned for better performance
     const PIECE_VALUE = 100;
-    const CONVERSION_BONUS_PER_PIECE = 50; // NEW: High bonus for each conversion
-    const ADJACENCY_BONUS = 5;             // NEW: Small bonus for touching an enemy
+    const CONVERSION_BONUS_PER_PIECE = 50;
+    const ADJACENCY_BONUS = 5;
     const EXTENT_BONUS_MULTIPLIER = 5;
     const CORNER_PLACEMENT_PENALTY = 200;
     const STATIC_CORNER_PENALTY = 50;
@@ -27,59 +27,68 @@ document.addEventListener('DOMContentLoaded', () => {
     const resetButton = document.getElementById('reset-button');
     const boardSizeSelector = document.getElementById('board-size-selector');
     const turnColorIndicator = document.getElementById('turn-color-indicator');
-    let board = [], currentPlayerIndex = 0, turnCount = 0, placementsThisTurn = [], pawnsToPlace = 0, gameOver = false, aiWorker = null;
+    
+    let board = [], currentPlayerIndex = 0, turnCount = 0, placementsThisTurn = [], pawnsToPlace = 0, gameOver = false;
+    
+    // --- Create a single, persistent AI worker ---
+    let aiOrchestratorWorker = null;
 
     // --- HELPER FUNCTIONS ---
-    // NOTE: Game logic functions like isValid, getSquexType, etc., are now in game_logic.js
     const getPlayerColor = () => COLORS[currentPlayerIndex];
     const isHumanTurn = () => HUMAN_TEAMS.includes(PLAYER_TEAMS[getPlayerColor()]);
     
     // --- CORE GAME LOGIC ---
-    // Inside main.js
-
-function initGame() {
-    if (aiWorker) aiWorker.terminate();
-    BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
-    
-    // --- THIS IS THE CRITICAL SECTION TO CHECK ---
-    // It must contain the new CONVERSION and ADJACENCY bonus lines
-    // and must NOT contain the old CONTACT_BONUS line.
-
-    CONFIG.boardSize = BOARD_SIZE;
-    CONFIG.COLORS = COLORS;
-    CONFIG.ALLIANCES = ALLIANCES;
-    CONFIG.PLAYER_TEAMS = PLAYER_TEAMS;
-    CONFIG.AI_SEARCH_TIME_MS = AI_SEARCH_TIME_MS;
-    CONFIG.AI_MAX_DEPTH = AI_MAX_DEPTH;
-    CONFIG.CANDIDATE_SINGLES_LIMIT = CANDIDATE_SINGLES_LIMIT;
-    CONFIG.PIECE_VALUE = PIECE_VALUE;
-    CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE; // MUST BE PRESENT
-    CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;                     // MUST BE PRESENT
-    CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
-    CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
-    CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
-    CONFIG.WIN_SCORE = WIN_SCORE;
-    // --- END OF CRITICAL SECTION ---
-
-
-    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-    currentPlayerIndex = 0; turnCount = 0; placementsThisTurn = []; pawnsToPlace = 1; gameOver = false;
-    boardSizeSelector.disabled = false; resetButton.disabled = false;
-    boardElement.innerHTML = '';
-    boardElement.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
-    boardElement.style.gridTemplateRows = `repeat(${BOARD_SIZE}, 1fr)`;
-    for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-            const square = document.createElement('div');
-            square.classList.add('board-square', getSquexType(r, c));
-            square.dataset.r = r;
-            square.dataset.c = c;
-            square.addEventListener('click', () => handleSquareClick(r, c));
-            boardElement.appendChild(square);
+    function initGame() {
+        // --- Initialize the worker only if it doesn't exist ---
+        if (!aiOrchestratorWorker) {
+            aiOrchestratorWorker = new Worker('ai_orchestrator.js');
+            
+            // Handle all messages from the persistent worker
+            aiOrchestratorWorker.onmessage = (e) => {
+                handleAiMoveResult(e.data);
+            };
+            
+            aiOrchestratorWorker.onerror = (e) => {
+                console.error('Error in AI Orchestrator Worker:', e.message, e);
+            };
         }
+
+        BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
+        
+        CONFIG.boardSize = BOARD_SIZE;
+        CONFIG.COLORS = COLORS;
+        CONFIG.ALLIANCES = ALLIANCES;
+        CONFIG.PLAYER_TEAMS = PLAYER_TEAMS;
+        CONFIG.AI_SEARCH_TIME_MS = AI_SEARCH_TIME_MS;
+        CONFIG.AI_MAX_DEPTH = AI_MAX_DEPTH;
+        CONFIG.CANDIDATE_SINGLES_LIMIT = CANDIDATE_SINGLES_LIMIT;
+        CONFIG.PIECE_VALUE = PIECE_VALUE;
+        CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE;
+        CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;
+        CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
+        CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
+        CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
+        CONFIG.WIN_SCORE = WIN_SCORE;
+
+        board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+        currentPlayerIndex = 0; turnCount = 0; placementsThisTurn = []; pawnsToPlace = 1; gameOver = false;
+        boardSizeSelector.disabled = false; resetButton.disabled = false;
+        boardElement.innerHTML = '';
+        boardElement.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+        boardElement.style.gridTemplateRows = `repeat(${BOARD_SIZE}, 1fr)`;
+        
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                const square = document.createElement('div');
+                square.classList.add('board-square', getSquexType(r, c));
+                square.dataset.r = r;
+                square.dataset.c = c;
+                square.addEventListener('click', () => handleSquareClick(r, c));
+                boardElement.appendChild(square);
+            }
+        }
+        startTurn();
     }
-    startTurn();
-}
 
     function renderBoard() {
         for (let r = 0; r < BOARD_SIZE; r++) {
@@ -126,12 +135,15 @@ function initGame() {
         placementsThisTurn = [];
         const legalPlacements = getAllValidSinglePlacements(board);
         pawnsToPlace = turnCount === 1 ? 1 : (legalPlacements.length >= 2 ? 2 : legalPlacements.length);
+        
         if (pawnsToPlace === 0 && turnCount > 1) {
             endGame(null, true);
             return;
         }
+        
         renderBoard();
         updateStatus();
+        
         if (!isHumanTurn()) {
             setTimeout(aiMove, 100);
         } else {
@@ -144,10 +156,8 @@ function initGame() {
         
         placementsThisTurn.push({ r, c });
         const color = getPlayerColor();
-        board[r][c] = { color, posture: 'new' };
-        
-        const conversions = getConversions(r, c, color, board);
-        conversions.forEach(conv => { board[conv.r][conv.c].color = color; });
+        const tempBoard = applyMove(board, placementsThisTurn, color);
+        board = tempBoard;
         
         renderBoard();
 
@@ -198,7 +208,10 @@ function initGame() {
     }
 
     function endGame(winner, isDraw = false) {
-        if (aiWorker) { aiWorker.terminate(); aiWorker = null; }
+        if (aiOrchestratorWorker) { 
+            aiOrchestratorWorker.terminate(); 
+            aiOrchestratorWorker = null; 
+        }
         gameOver = true; boardSizeSelector.disabled = false; resetButton.disabled = false;
         if (isDraw) {
             turnIndicator.textContent = "It's a draw!"; turnIndicator.style.color = '#e0e0e0';
@@ -213,55 +226,37 @@ function initGame() {
     
     resetButton.addEventListener('click', initGame);
     boardSizeSelector.addEventListener('change', initGame);
-   
+    
     function aiMove() {
-        if (aiWorker) {
-            aiWorker.terminate();
-        }
-
-        aiWorker = new Worker('ai_orchestrator.js');
-
-        aiWorker.onmessage = (e) => {
-            const { bestMove } = e.data;
-            
-            if (bestMove && bestMove.length > 0) {
-                placementsThisTurn = bestMove;
-                const playerColor = getPlayerColor();
-                const tempBoard = applyMove(board, bestMove, playerColor);
-                board = tempBoard;
-                
-                renderBoard();
-                
-                const winInfo = checkWinCondition(board);
-                if (winInfo && winInfo.winner) {
-                    animateWinningChain(winInfo.path, winInfo.winner);
-                    return;
-                }
-                advanceToNextTurn();
-            } else {
-                console.error("AI couldn't find a valid move.");
-                endGame(null, true);
-            }
-            aiWorker.terminate();
-            aiWorker = null;
-        };
-
-        aiWorker.onerror = (e) => {
-            console.error('Error in AI Orchestrator Worker:', e.message, e);
-            if (aiWorker) {
-                aiWorker.terminate();
-                aiWorker = null;
-            }
-        };
-
-        aiWorker.postMessage({
+        updateStatus(); // Let the UI know the AI is thinking
+        aiOrchestratorWorker.postMessage({
+            type: 'findBestMove',
             board,
             currentPlayerIndex,
             turnCount,
-            boardSize: BOARD_SIZE,
             config: CONFIG
         });
     }
-    initGame();
 
+    function handleAiMoveResult({ bestMove }) {
+        if (bestMove && bestMove.length > 0) {
+            placementsThisTurn = bestMove;
+            const playerColor = getPlayerColor();
+            board = applyMove(board, bestMove, playerColor);
+            
+            renderBoard();
+            
+            const winInfo = checkWinCondition(board);
+            if (winInfo && winInfo.winner) {
+                animateWinningChain(winInfo.path, winInfo.winner);
+                return;
+            }
+            advanceToNextTurn();
+        } else {
+            console.error("AI couldn't find a valid move.");
+            endGame(null, true);
+        }
+    }
+
+    initGame();
 });
