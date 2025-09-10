@@ -5,77 +5,66 @@ importScripts('game_logic.js');
 let workers = [];
 let jobResolvers = new Map();
 let nextJobId = 0;
-let isInitialized = false;
 
-function terminateAllWorkers() {
-    workers.forEach(w => w.terminate());
-    workers = [];
-    jobResolvers.clear();
-    isInitialized = false;
-}
+// The main message handler for the persistent worker
+self.onmessage = async (e) => {
+    const { type, board, currentPlayerIndex, turnCount, config } = e.data;
 
-function setupAndInitWorkers(numWorkers, config, zobrist, zobristT) {
-    return new Promise(resolve => {
-        if (isInitialized) {
-            jobResolvers.clear();
-            workers.forEach(worker => {
-                worker.postMessage({
-                    type: 'init',
-                    config, zobrist, zobristT
-                });
-            });
-            resolve();
+    if (type === 'findBestMove') {
+        // --- THIS IS THE CRITICAL FIX ---
+        // Ensure the global CONFIG for this worker is updated with every new move request.
+        CONFIG = config;
+
+        // Re-initialize Zobrist and clear TTs in helpers for the new turn
+        initZobrist(CONFIG.boardSize);
+        workers.forEach(w => w.postMessage({
+            type: 'init',
+            config: CONFIG,
+            zobrist: zobristTable,
+            zobristT: zobristTurn
+        }));
+
+        let bestResult = { bestMove: null };
+        
+        // Use the now-correct CONFIG to get the root moves
+        const rootMoves = getOrderedMoves(board, turnCount, CONFIG.COLORS[currentPlayerIndex]);
+        
+        if (rootMoves.length > 0) {
+            bestResult.bestMove = rootMoves[0].move;
+        } else {
+            // If there are genuinely no moves, post back, but this shouldn't happen on turn 2.
+            self.postMessage({ bestMove: null });
             return;
         }
 
-        for (let i = 0; i < numWorkers; i++) {
-            const worker = new Worker('helper_worker.js');
-            worker.onmessage = (e) => {
-                const { jobId, score } = e.data;
-                if (jobResolvers.has(jobId)) {
-                    jobResolvers.get(jobId)(score);
-                    jobResolvers.delete(jobId);
-                }
-            };
-            worker.onerror = (err) => console.error("Helper worker error:", err);
-            workers.push(worker);
+        try {
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Timeout')), CONFIG.AI_SEARCH_TIME_MS)
+            );
 
-            worker.postMessage({
-                type: 'init',
-                config, zobrist, zobristT
-            });
+            const searchPromise = findBestMove(board, currentPlayerIndex, turnCount, rootMoves);
+
+            const finalResult = await Promise.race([searchPromise, timeoutPromise]);
+            bestResult = finalResult;
+
+        } catch (error) {
+            console.warn(`AI search timed out. Using best move from the last completed depth.`);
+        } finally {
+            // As a persistent worker, it does NOT terminate itself. It just sends the result.
+            self.postMessage(bestResult);
         }
-        isInitialized = true;
-        resolve();
-    });
-}
-
-function dispatchJob(jobData) {
-    return new Promise((resolve) => {
-        const jobId = nextJobId++;
-        jobResolvers.set(jobId, resolve);
-        const workerIndex = jobId % workers.length;
-        workers[workerIndex].postMessage({ ...jobData, jobId });
-    });
-}
-
-async function findBestMove(board, currentPlayerIndex, turnCount) {
-    let bestMoveSoFar = null;
-    let bestScoreSoFar = -Infinity;
-    
-    const playerColor = CONFIG.COLORS[currentPlayerIndex];
-    const rootMoves = getOrderedMoves(board, turnCount, playerColor);
-    
-    if (rootMoves.length === 0) {
-        return { bestMove: null };
     }
-    
-    bestMoveSoFar = rootMoves[0].move;
+};
+
+// This function now accepts rootMoves as a parameter to avoid calling getOrderedMoves again.
+async function findBestMove(board, currentPlayerIndex, turnCount, rootMoves) {
+    let bestMoveSoFar = rootMoves.length > 0 ? rootMoves[0].move : null;
+    let bestScoreSoFar = -Infinity;
 
     // Iterative Deepening
     for (let depth = 1; depth <= CONFIG.AI_MAX_DEPTH; depth++) {
         const promises = rootMoves.map(moveObj => (async () => {
-            const newBoard = applyMove(board, moveObj.move, playerColor);
+            const newBoard = applyMove(board, moveObj.move, CONFIG.COLORS[currentPlayerIndex]);
             const score = await dispatchJob({
                 board: newBoard,
                 depth: depth - 1,
@@ -88,72 +77,63 @@ async function findBestMove(board, currentPlayerIndex, turnCount) {
         })());
 
         const results = await Promise.all(promises);
-        
+
         let bestMoveForDepth = bestMoveSoFar;
         let bestScoreForDepth = -Infinity;
 
+        // Note: The logic here should account for the fact that the opponent is minimizing
+        const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[CONFIG.COLORS[currentPlayerIndex]] === 1;
+
         for (const result of results) {
-            if (result.score > bestScoreForDepth) {
-                bestScoreForDepth = result.score;
+            // The score from the helper is from the opponent's perspective. We need to flip it.
+            const perspectiveScore = isMaximizingPlayer ? result.score : -result.score;
+            if (perspectiveScore > bestScoreForDepth) {
+                bestScoreForDepth = perspectiveScore;
                 bestMoveForDepth = result.move;
             }
         }
-        
+
         bestMoveSoFar = bestMoveForDepth;
         bestScoreSoFar = bestScoreForDepth;
         console.log(`Depth ${depth} complete. Best move:`, bestMoveSoFar, "Score:", bestScoreSoFar);
-        
-        // --- START: NEW PV SORTING LOGIC ---
-        // Find the full move object that corresponds to the best move found
-        const bestMoveIndex = rootMoves.findIndex(m => 
+
+        const bestMoveIndex = rootMoves.findIndex(m =>
             JSON.stringify(m.move) === JSON.stringify(bestMoveSoFar)
         );
 
-        // If found, move it to the front of the array for the next iteration
         if (bestMoveIndex > 0) {
             const [pvMove] = rootMoves.splice(bestMoveIndex, 1);
             rootMoves.unshift(pvMove);
         }
-        // --- END: NEW PV SORTING LOGIC ---
     }
-    
+
     return { bestMove: bestMoveSoFar, score: bestScoreSoFar };
 }
 
-self.onmessage = async (e) => {
-    const { board, currentPlayerIndex, turnCount, boardSize, config } = e.data;
-    CONFIG = config; 
-    CONFIG.boardSize = boardSize;
-    
-    initZobrist(boardSize);
+function dispatchJob(jobData) {
+    return new Promise((resolve) => {
+        const jobId = nextJobId++;
+        jobResolvers.set(jobId, resolve);
+        const workerIndex = jobId % workers.length;
+        workers[workerIndex].postMessage({ ...jobData, jobId });
+    });
+}
+
+// Initial setup runs once when the orchestrator worker is first created.
+function initialSetup() {
     const numCores = navigator.hardwareConcurrency || 2;
-    await setupAndInitWorkers(Math.max(1, numCores), CONFIG, zobristTable, zobristTurn);
-
-    let bestResult = { bestMove: null };
-    
-    const rootMoves = getOrderedMoves(board, turnCount, CONFIG.COLORS[currentPlayerIndex]);
-    if (rootMoves.length > 0) {
-       bestResult.bestMove = rootMoves[0].move; // Ensure a move is always available
-    } else {
-       self.postMessage({ bestMove: null });
-       return;
+    for (let i = 0; i < numCores; i++) {
+        const worker = new Worker('helper_worker.js');
+        worker.onmessage = (e) => {
+            const { jobId, score } = e.data;
+            if (jobResolvers.has(jobId)) {
+                jobResolvers.get(jobId)(score);
+                jobResolvers.delete(jobId);
+            }
+        };
+        worker.onerror = (err) => console.error("Helper worker error:", err);
+        workers.push(worker);
     }
+}
 
-    try {
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), CONFIG.AI_SEARCH_TIME_MS)
-        );
-        
-        const searchPromise = findBestMove(board, currentPlayerIndex, turnCount);
-        
-        const finalResult = await Promise.race([searchPromise, timeoutPromise]);
-        bestResult = finalResult;
-
-    } catch (error) {
-        console.warn(`AI search timed out. Using best move from last completed depth.`);
-    } finally {
-        self.postMessage(bestResult);
-        terminateAllWorkers();
-        self.close();
-    }
-};
+initialSetup();
