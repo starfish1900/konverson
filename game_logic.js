@@ -177,8 +177,9 @@ function getOrderedMoves(board, turnCount, playerColor) {
 // --- WIN CONDITION & EVALUATION ---
 function checkWinCondition(board) {
     for (const color of CONFIG.COLORS) {
-        if (hasConnection(color, board)) {
-            return { winner: color };
+        const path = hasConnection(color, board);
+        if (path) {
+            return { winner: color, path: path };
         }
     }
     return null;
@@ -189,27 +190,34 @@ function hasConnection(color, board) {
     const visitedNS = Array(CONFIG.boardSize).fill(null).map(() => Array(CONFIG.boardSize).fill(false));
     for (let c = 0; c < CONFIG.boardSize; c++) {
         if (board[0][c]?.color === color && !isCorner(0, c)) {
-            if (bfs(0, c, color, 'S', visitedNS, board)) return true;
+            const path = bfs(0, c, color, 'S', visitedNS, board);
+            if (path) return path;
         }
     }
     const visitedEW = Array(CONFIG.boardSize).fill(null).map(() => Array(CONFIG.boardSize).fill(false));
     for (let r = 0; r < CONFIG.boardSize; r++) {
         if (board[r][0]?.color === color && !isCorner(r, 0)) {
-            if (bfs(r, 0, color, 'E', visitedEW, board)) return true;
+            const path = bfs(r, 0, color, 'E', visitedEW, board);
+            if (path) return path;
         }
     }
-    return false;
+    return null;
 }
 
 function bfs(startR, startC, color, targetSide, visited, board) {
-    if (visited[startR][startC]) return false;
+    if (visited[startR][startC]) return null;
     const queue = [{ r: startR, c: startC }];
+    const parent = new Map();
+    parent.set(`${startR},${startC}`, null);
     visited[startR][startC] = true;
     let queueIndex = 0;
+    let endNode = null;
+
     while (queueIndex < queue.length) {
         const { r, c } = queue[queueIndex++];
         if ((targetSide === 'S' && r === CONFIG.boardSize - 1) || (targetSide === 'E' && c === CONFIG.boardSize - 1)) {
-            return true;
+            endNode = { r, c };
+            break;
         }
         for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {
@@ -217,17 +225,27 @@ function bfs(startR, startC, color, targetSide, visited, board) {
                 const nr = r + dr, nc = c + dc;
                 if (isValid(nr, nc) && !visited[nr][nc] && board[nr][nc]?.color === color && getSquexType(nr, nc) !== 'corner') {
                     visited[nr][nc] = true;
+                    parent.set(`${nr},${nc}`, { r, c });
                     queue.push({ r: nr, c: nc });
                 }
             }
         }
     }
-    return false;
+
+    if (!endNode) return null;
+    const path = [];
+    let current = endNode;
+    while(current) {
+        path.unshift(current);
+        current = parent.get(`${current.r},${current.c}`);
+    }
+    return path;
 }
+
 
 function evaluate(board) {
     const winInfo = checkWinCondition(board);
-    if (winInfo) {
+    if (winInfo && winInfo.winner) {
         return CONFIG.PLAYER_TEAMS[winInfo.winner] === 1 ? CONFIG.WIN_SCORE : -CONFIG.WIN_SCORE;
     }
     let team1PieceCount = 0, team2PieceCount = 0;
