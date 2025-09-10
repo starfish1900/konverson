@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- AI CONFIGURATION ---
     const AI_SEARCH_TIME_MS = 3000;
     const AI_MAX_DEPTH = 24; 
-    const CANDIDATE_SINGLES_LIMIT = 100;
+    const CANDIDATE_SINGLES_LIMIT = 169;
     const PIECE_VALUE = 100;
     const CONTACT_BONUS = 10;
     const EXTENT_BONUS_MULTIPLIER = 5;
@@ -254,4 +254,5 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     initGame();
+
 });
