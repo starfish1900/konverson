@@ -74,6 +74,7 @@
                 <option value="9">9x9</option>
                 <option value="11" selected>11x11</option>
                 <option value="13">13x13</option>
+                <option value="15">15x15</option>
             </select>
         </div>
     </div>
@@ -92,7 +93,7 @@
         // --- AI CONFIGURATION ---
         const AI_SEARCH_TIME_MS = 3000;
         const AI_MAX_DEPTH = 24; 
-        const CANDIDATE_SINGLES_LIMIT = 10;
+        const CANDIDATE_SINGLES_LIMIT = 100;
         const PIECE_VALUE = 100;
         const CONTACT_BONUS = 10;
         const EXTENT_BONUS_MULTIPLIER = 5;
@@ -428,4 +429,5 @@
     </script>
 
 </body>
+
 </html>
