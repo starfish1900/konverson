@@ -1,5 +1,4 @@
 // --- CONFIG & SHARED STATE ---
-// This object will be initialized by the orchestrator and passed to helpers.
 let CONFIG = {};
 
 // --- ZOBRIST HASHING ---
@@ -128,23 +127,16 @@ function getOrderedMoves(board, turnCount, playerColor) {
 
     const scoredSingles = singlePlacements.map(p => {
         let score = 0;
-        
-        // --- START: MODIFIED HEURISTIC LOGIC ---
-
-        // 1. Calculate high-priority bonus for actual conversions
-        // Create a temporary board to see the result of the placement
         const tempBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
         tempBoard[p.r][p.c] = { color: playerColor, posture: 'new' };
         const conversions = getConversions(p.r, p.c, playerColor, tempBoard);
         score += conversions.length * CONFIG.CONVERSION_BONUS_PER_PIECE;
 
-        // 2. Calculate low-priority bonus for simple adjacency
         let adjacencyCount = 0;
         for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {
                 if (dr === 0 && dc === 0) continue;
                 const nr = p.r + dr, nc = p.c + dc;
-                // Check on the original board
                 if (isValid(nr, nc) && board[nr][nc] && isEnemy(board[nr][nc].color, playerColor)) {
                     adjacencyCount++;
                 }
@@ -152,12 +144,9 @@ function getOrderedMoves(board, turnCount, playerColor) {
         }
         score += adjacencyCount * CONFIG.ADJACENCY_BONUS;
         
-        // 3. Apply penalties
         if (getSquexType(p.r, p.c) === 'corner') {
             score -= CONFIG.CORNER_PLACEMENT_PENALTY;
         }
-
-        // --- END: MODIFIED HEURISTIC LOGIC ---
 
         return { placement: p, score };
     }).sort((a, b) => b.score - a.score);
@@ -184,7 +173,7 @@ function getOrderedMoves(board, turnCount, playerColor) {
 
     if (doubleMoves.length > 0) return doubleMoves;
 
-    if (singlePlacements.length >= 2) { // Fallback for no valid doubles in candidates
+    if (singlePlacements.length >= 2) {
         for (let i = 0; i < singlePlacements.length; i++) {
             for (let j = i + 1; j < singlePlacements.length; j++) {
                 const p1 = singlePlacements[i], p2 = singlePlacements[j];
@@ -263,7 +252,11 @@ function bfs(startR, startC, color, targetSide, visited, board) {
     return path;
 }
 
-
+/**
+ * --- UPDATED: Evaluation function ---
+ * Now includes BORDER_ACCESS_BONUS. When discovering a connected pawn island, it checks
+ * if any pawn in that island is on a border. If so, a bonus is awarded.
+ */
 function evaluate(board) {
     const winInfo = checkWinCondition(board);
     if (winInfo && winInfo.winner) {
@@ -271,8 +264,9 @@ function evaluate(board) {
     }
     let team1PieceCount = 0, team2PieceCount = 0;
     let team1CornerPenalty = 0, team2CornerPenalty = 0;
-    let team1ExtentBonus = 0, team2ExtentBonus = 0;
+    let team1PositionalBonus = 0, team2PositionalBonus = 0; // Renamed for clarity
     const visited = Array(CONFIG.boardSize).fill(null).map(() => Array(CONFIG.boardSize).fill(false));
+
     for (let r = 0; r < CONFIG.boardSize; r++) {
         for (let c = 0; c < CONFIG.boardSize; c++) {
             const piece = board[r][c];
@@ -288,13 +282,21 @@ function evaluate(board) {
 
                 if (!visited[r][c]) {
                     let minR = r, maxR = r, minC = c, maxC = c;
+                    let islandHasBorderPawn = false; // --- NEW: Flag for this specific island ---
                     const queue = [{ r, c }];
                     visited[r][c] = true;
                     let qIdx = 0;
+
                     while (qIdx < queue.length) {
                         const curr = queue[qIdx++];
                         minR = Math.min(minR, curr.r); maxR = Math.max(maxR, curr.r);
                         minC = Math.min(minC, curr.c); maxC = Math.max(maxC, curr.c);
+                        
+                        // --- NEW: Check if the current pawn gives border access ---
+                        if (getSquexType(curr.r, curr.c) === 'border') {
+                            islandHasBorderPawn = true;
+                        }
+
                         for (let dr = -1; dr <= 1; dr++) {
                             for (let dc = -1; dc <= 1; dc++) {
                                 if (dr === 0 && dc === 0) continue;
@@ -306,13 +308,24 @@ function evaluate(board) {
                             }
                         }
                     }
+                    // Calculate extent bonus
                     const extent = Math.max(maxR - minR, maxC - minC);
                     const bonus = extent * extent * CONFIG.EXTENT_BONUS_MULTIPLIER;
-                    if (team === 1) team1ExtentBonus += bonus; else team2ExtentBonus += bonus;
+                    
+                    if (team === 1) {
+                        team1PositionalBonus += bonus;
+                        if (islandHasBorderPawn) team1PositionalBonus += CONFIG.BORDER_ACCESS_BONUS;
+                    } else {
+                        team2PositionalBonus += bonus;
+                        if (islandHasBorderPawn) team2PositionalBonus += CONFIG.BORDER_ACCESS_BONUS;
+                    }
                 }
             }
         }
     }
     const pieceAdvantage = (team1PieceCount - team2PieceCount) * CONFIG.PIECE_VALUE;
-    return pieceAdvantage + team1ExtentBonus - team2ExtentBonus - team1CornerPenalty + team2CornerPenalty;
+    const positionalAdvantage = team1PositionalBonus - team2PositionalBonus;
+    const penaltyAdvantage = team2CornerPenalty - team1CornerPenalty;
+
+    return pieceAdvantage + positionalAdvantage + penaltyAdvantage;
 }

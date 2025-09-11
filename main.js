@@ -9,13 +9,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const AI_TEAMS = [2];
 
     // --- AI CONFIGURATION ---
-    const AI_SEARCH_TIME_MS = 6000; // Updated to 6 seconds
+    const AI_SEARCH_TIME_MS = 6000; 
     const AI_MAX_DEPTH = 24;
-    const CANDIDATE_SINGLES_LIMIT = 30; // Tuned for better performance
+    const CANDIDATE_SINGLES_LIMIT = 30;
     const PIECE_VALUE = 100;
     const CONVERSION_BONUS_PER_PIECE = 50;
     const ADJACENCY_BONUS = 5;
     const EXTENT_BONUS_MULTIPLIER = 5;
+    const BORDER_ACCESS_BONUS = 75; // --- NEW: Bonus for pawn groups touching a border ---
     const CORNER_PLACEMENT_PENALTY = 200;
     const STATIC_CORNER_PENALTY = 50;
     const WIN_SCORE = 100000;
@@ -30,7 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let board = [], currentPlayerIndex = 0, turnCount = 0, placementsThisTurn = [], pawnsToPlace = 0, gameOver = false;
     
-    // --- Create a single, persistent AI worker ---
     let aiOrchestratorWorker = null;
 
     // --- HELPER FUNCTIONS ---
@@ -39,11 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- CORE GAME LOGIC ---
     function initGame() {
-        // --- Initialize the worker only if it doesn't exist ---
         if (!aiOrchestratorWorker) {
             aiOrchestratorWorker = new Worker('ai_orchestrator.js');
             
-            // Handle all messages from the persistent worker
             aiOrchestratorWorker.onmessage = (e) => {
                 handleAiMoveResult(e.data);
             };
@@ -55,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         BOARD_SIZE = parseInt(boardSizeSelector.value, 10);
         
+        // --- Pass the new bonus to the global CONFIG ---
         CONFIG.boardSize = BOARD_SIZE;
         CONFIG.COLORS = COLORS;
         CONFIG.ALLIANCES = ALLIANCES;
@@ -66,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
         CONFIG.CONVERSION_BONUS_PER_PIECE = CONVERSION_BONUS_PER_PIECE;
         CONFIG.ADJACENCY_BONUS = ADJACENCY_BONUS;
         CONFIG.EXTENT_BONUS_MULTIPLIER = EXTENT_BONUS_MULTIPLIER;
+        CONFIG.BORDER_ACCESS_BONUS = BORDER_ACCESS_BONUS; // Add new config value
         CONFIG.CORNER_PLACEMENT_PENALTY = CORNER_PLACEMENT_PENALTY;
         CONFIG.STATIC_CORNER_PENALTY = STATIC_CORNER_PENALTY;
         CONFIG.WIN_SCORE = WIN_SCORE;
@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     boardSizeSelector.addEventListener('change', initGame);
     
     function aiMove() {
-        updateStatus(); // Let the UI know the AI is thinking
+        updateStatus();
         aiOrchestratorWorker.postMessage({
             type: 'findBestMove',
             board,
