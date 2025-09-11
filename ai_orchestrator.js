@@ -32,7 +32,7 @@ self.onmessage = async (e) => {
         if (rootMoves.length > 0) {
             bestResult.bestMove = rootMoves[0].move;
         } else {
-            // If there are genuinely no moves, post back, but this shouldn't happen on turn 2.
+            // If there are genuinely no moves, post back.
             self.postMessage({ bestMove: null });
             return;
         }
@@ -56,54 +56,84 @@ self.onmessage = async (e) => {
     }
 };
 
-// This function now accepts rootMoves as a parameter to avoid calling getOrderedMoves again.
+/**
+ * --- NEW: findBestMove with Aspiration Windows ---
+ * This function now uses the score from the previous depth (lastScore) to create a narrow
+ * search window (alpha, beta). If the search "fails" by returning a score outside this
+ * window, it re-searches with a wider window. This is more efficient than always
+ * searching with (-Infinity, +Infinity).
+ */
 async function findBestMove(board, currentPlayerIndex, turnCount, rootMoves) {
     let bestMoveSoFar = rootMoves.length > 0 ? rootMoves[0].move : null;
     let bestScoreSoFar = -Infinity;
+    
+    // --- ASPIRATION WINDOWS SETUP ---
+    let lastScore = 0; // Use score from previous depth as the center for the window.
+    const ASPIRATION_WINDOW_DELTA = 50; // A tunable value for the window's width.
 
-    // Iterative Deepening
+    // Iterative Deepening Loop
     for (let depth = 1; depth <= CONFIG.AI_MAX_DEPTH; depth++) {
-        const promises = rootMoves.map(moveObj => (async () => {
-            const newBoard = applyMove(board, moveObj.move, CONFIG.COLORS[currentPlayerIndex]);
-            const score = await dispatchJob({
-                board: newBoard,
-                depth: depth - 1,
-                alpha: -Infinity,
-                beta: Infinity,
-                playerIndex: (currentPlayerIndex + 1) % 4,
-                turnCount: turnCount + 1,
-            });
-            return { move: moveObj.move, score };
-        })());
+        let alpha = lastScore - ASPIRATION_WINDOW_DELTA;
+        let beta = lastScore + ASPIRATION_WINDOW_DELTA;
 
-        const results = await Promise.all(promises);
+        // Loop for re-searching if the score falls outside the aspiration window.
+        while (true) { 
+            const promises = rootMoves.map(moveObj => (async () => {
+                const newBoard = applyMove(board, moveObj.move, CONFIG.COLORS[currentPlayerIndex]);
+                // Dispatch job for the opponent. The alpha/beta window is flipped and negated for a NegaMax search.
+                const score = await dispatchJob({
+                    board: newBoard,
+                    depth: depth - 1,
+                    alpha: -beta, 
+                    beta: -alpha, 
+                    playerIndex: (currentPlayerIndex + 1) % 4,
+                    turnCount: turnCount + 1,
+                });
+                // The returned score is from the opponent's view. Negate it for our perspective.
+                return { move: moveObj.move, score: -score };
+            })());
 
-        let bestMoveForDepth = bestMoveSoFar;
-        let bestScoreForDepth = -Infinity;
+            const results = await Promise.all(promises);
 
-        // Note: The logic here should account for the fact that the opponent is minimizing
-        const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[CONFIG.COLORS[currentPlayerIndex]] === 1;
+            let bestMoveForDepth = bestMoveSoFar;
+            let bestScoreForDepth = -Infinity;
 
-        for (const result of results) {
-            // The score from the helper is from the opponent's perspective. We need to flip it.
-            const perspectiveScore = isMaximizingPlayer ? result.score : -result.score;
-            if (perspectiveScore > bestScoreForDepth) {
-                bestScoreForDepth = perspectiveScore;
-                bestMoveForDepth = result.move;
+            for (const result of results) {
+                if (result.score > bestScoreForDepth) {
+                    bestScoreForDepth = result.score;
+                    bestMoveForDepth = result.move;
+                }
             }
-        }
 
-        bestMoveSoFar = bestMoveForDepth;
-        bestScoreSoFar = bestScoreForDepth;
-        console.log(`Depth ${depth} complete. Best move:`, bestMoveSoFar, "Score:", bestScoreSoFar);
+            // --- CHECK ASPIRATION WINDOW RESULT ---
+            if (bestScoreForDepth <= alpha) { // Fail low: score was worse than expected.
+                console.log(`Depth ${depth} failed low (${bestScoreForDepth} <= ${alpha}). Re-searching.`);
+                alpha = -Infinity; // Widen window downwards and search again.
+                continue;
+            }
 
-        const bestMoveIndex = rootMoves.findIndex(m =>
-            JSON.stringify(m.move) === JSON.stringify(bestMoveSoFar)
-        );
+            if (bestScoreForDepth >= beta) { // Fail high: score was better than expected.
+                console.log(`Depth ${depth} failed high (${bestScoreForDepth} >= ${beta}). Re-searching.`);
+                beta = Infinity; // Widen window upwards and search again.
+                continue;
+            }
+            
+            // --- SUCCESS: Score was within the window ---
+            bestMoveSoFar = bestMoveForDepth;
+            bestScoreSoFar = bestScoreForDepth;
+            lastScore = bestScoreForDepth; // Center the next window around this score.
+            console.log(`Depth ${depth} complete. Best move:`, bestMoveSoFar, "Score:", bestScoreSoFar);
 
-        if (bestMoveIndex > 0) {
-            const [pvMove] = rootMoves.splice(bestMoveIndex, 1);
-            rootMoves.unshift(pvMove);
+            // Move the best move (Principal Variation) to the front for the next iteration.
+            const bestMoveIndex = rootMoves.findIndex(m =>
+                JSON.stringify(m.move) === JSON.stringify(bestMoveSoFar)
+            );
+            if (bestMoveIndex > 0) {
+                const [pvMove] = rootMoves.splice(bestMoveIndex, 1);
+                rootMoves.unshift(pvMove);
+            }
+
+            break; // Exit the while loop and proceed to the next depth.
         }
     }
 
@@ -115,7 +145,8 @@ function dispatchJob(jobData) {
         const jobId = nextJobId++;
         jobResolvers.set(jobId, resolve);
         const workerIndex = jobId % workers.length;
-        workers[workerIndex].postMessage({ ...jobData, jobId });
+        // Pass the config with every job to ensure helpers are up-to-date
+        workers[workerIndex].postMessage({ ...jobData, config: CONFIG });
     });
 }
 

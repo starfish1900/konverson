@@ -4,17 +4,9 @@
 importScripts('game_logic.js');
 
 const TT_EXACT = 0, TT_ALPHA = 1, TT_BETA = 2;
-// The TT is a persistent variable inside the worker.
 let transpositionTable = new Map();
-
-// --- NEW: HISTORY HEURISTIC TABLE ---
-// Stores scores for individual placements that have proven effective.
 let historyTable = [];
 
-/**
- * Generates only moves that result in at least one conversion.
- * It also attaches the number of conversions for sorting and pruning.
- */
 function getConversionMoves(board, turnCount, playerColor) {
     const allMoves = getOrderedMoves(board, turnCount, playerColor);
     const conversionMoves = [];
@@ -31,75 +23,56 @@ function getConversionMoves(board, turnCount, playerColor) {
         });
 
         if (totalConversions > 0) {
-            conversionMoves.push({
-                move: moveObj.move,
-                conversions: totalConversions
-            });
+            conversionMoves.push({ move: moveObj.move, conversions: totalConversions });
         }
     }
-
-    // Sort moves by the number of conversions they generate, most first.
     return conversionMoves.sort((a, b) => b.conversions - a.conversions);
 }
 
+const Q_SEARCH_MAX_DEPTH = 2;
 
-const Q_SEARCH_MAX_DEPTH = 2; // Limit quiescence search to this many extra moves.
-
+/**
+ * --- NEW: NegaMax Quiescence Search ---
+ * Refactored to fit the NegaMax framework. It returns a score from the perspective of the current player.
+ */
 function quiescenceSearch(board, depth, alpha, beta, playerIndex, turnCount) {
-    const winInfo = checkWinCondition(board);
-    if (winInfo) return evaluate(board);
+    const playerColor = CONFIG.COLORS[playerIndex];
+    const multiplier = (CONFIG.PLAYER_TEAMS[playerColor] === 1) ? 1 : -1;
 
-    if (depth === 0) {
-        return evaluate(board);
+    const winInfo = checkWinCondition(board);
+    if (winInfo) {
+        return evaluate(board) * multiplier; // Return score from current player's perspective
     }
     
-    const stand_pat = evaluate(board);
-    const playerColor = CONFIG.COLORS[playerIndex];
-    const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
+    const stand_pat = evaluate(board) * multiplier; // Get evaluation from current player's perspective
 
-    if (isMaximizingPlayer) {
-        if (stand_pat >= beta) return beta;
-        if (stand_pat > alpha) alpha = stand_pat;
-    } else { // Minimizing player
-        if (stand_pat <= alpha) return alpha;
-        if (stand_pat < beta) beta = stand_pat;
-    }
+    if (stand_pat >= beta) return beta; // Fail-hard beta cutoff
+    
+    alpha = Math.max(alpha, stand_pat);
+
+    if (depth === 0) return alpha;
 
     const moves = getConversionMoves(board, turnCount, playerColor);
-    if (moves.length === 0) {
-        return stand_pat;
-    }
-
-    let bestValue = stand_pat;
-
+    if (moves.length === 0) return alpha;
+    
     for (const moveObj of moves) {
-        const estimatedGain = moveObj.conversions * CONFIG.PIECE_VALUE;
-        const futilityMargin = CONFIG.PIECE_VALUE;
-        
-        if (isMaximizingPlayer) {
-            if (stand_pat + estimatedGain + futilityMargin < alpha) {
-                continue;
-            }
-        }
-
         const newBoard = applyMove(board, moveObj.move, playerColor);
         const nextPlayerIndex = (playerIndex + 1) % 4;
-        const value = quiescenceSearch(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
-
-        if (isMaximizingPlayer) {
-            bestValue = Math.max(bestValue, value);
-            alpha = Math.max(alpha, bestValue);
-        } else {
-            bestValue = Math.min(bestValue, value);
-            beta = Math.min(beta, bestValue);
-        }
-        if (beta <= alpha) break;
+        const score = -quiescenceSearch(newBoard, depth - 1, -beta, -alpha, nextPlayerIndex, turnCount + 1);
+        alpha = Math.max(alpha, score);
+        if (alpha >= beta) return beta; // Prune
     }
-
-    return bestValue;
+    return alpha;
 }
 
 
+/**
+ * --- NEW: NegaMax with Principal Variation Search (PVS) ---
+ * The search is now implemented in a NegaMax style, which simplifies the logic.
+ * 1. The first move is assumed to be the best (the Principal Variation) and is searched with a full (alpha, beta) window.
+ * 2. Subsequent moves are first tested with a highly efficient "null window" search (-alpha - 1, -alpha).
+ * 3. Only if a null window search indicates a move could be better than the current best, it is re-searched with the full window.
+ */
 function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     const originalAlpha = alpha;
     const hash = computeHash(board, playerIndex);
@@ -116,87 +89,59 @@ function alphaBeta(board, depth, alpha, beta, playerIndex, turnCount) {
     }
     
     const winInfo = checkWinCondition(board);
-    if (winInfo) return evaluate(board);
+    if (winInfo) {
+        const playerColor = CONFIG.COLORS[playerIndex];
+        const multiplier = (CONFIG.PLAYER_TEAMS[playerColor] === 1) ? 1 : -1;
+        return evaluate(board) * multiplier;
+    }
     
     const playerColor = CONFIG.COLORS[playerIndex];
-    const isMaximizingPlayer = CONFIG.PLAYER_TEAMS[playerColor] === 1;
-
-    // --- NULL-MOVE PRUNING LOGIC ---
-    const R_NMP = 3; // Depth reduction factor for Null-Move Pruning
-    if (depth >= R_NMP) {
-        const nextPlayerIndex = (playerIndex + 1) % 4;
-        // Note: The original implementation had a bug passing `alpha, beta` here.
-        // For a null move, the side to move flips, so the bounds for the recursive call must also flip and be negated.
-        const nullScore = -alphaBeta(board, depth - 1 - R_NMP, -beta, -alpha, nextPlayerIndex, turnCount + 1);
-
-        if (isMaximizingPlayer && nullScore >= beta) {
-            return beta; // Prune
-        }
-        if (!isMaximizingPlayer && nullScore <= alpha) {
-            return alpha; // Prune
-        }
-    }
-    // --- END NULL-MOVE PRUNING ---
-
     const orderedMoves = getOrderedMoves(board, turnCount, playerColor);
     
-    // --- APPLY HISTORY HEURISTIC FOR MOVE ORDERING ---
-    // Before searching, we enhance the sorting with our history scores.
     for (const moveObj of orderedMoves) {
         let historyScore = 0;
         for (const placement of moveObj.move) {
             historyScore += historyTable[placement.r][placement.c];
         }
-        moveObj.score += historyScore; // Add history bonus to the static score
+        moveObj.score += historyScore;
     }
-    orderedMoves.sort((a, b) => b.score - a.score); // Re-sort with the new scores
+    orderedMoves.sort((a, b) => b.score - a.score);
 
     if (orderedMoves.length === 0) {
-        return evaluate(board);
+        const multiplier = (CONFIG.PLAYER_TEAMS[playerColor] === 1) ? 1 : -1;
+        return evaluate(board) * multiplier;
     }
 
-    let bestValue = isMaximizingPlayer ? -Infinity : Infinity;
-    let moveIndex = 0; // --- Counter for Late Move Reductions ---
+    let bestValue = -Infinity;
+    let moveIndex = 0;
 
     for (const moveObj of orderedMoves) {
         const newBoard = applyMove(board, moveObj.move, playerColor);
         const nextPlayerIndex = (playerIndex + 1) % 4;
         
-        let value;
-        // --- LATE MOVE REDUCTIONS (LMR) LOGIC ---
-        const R_LMR = 1; // Reduction factor
-        // Conditions: Don't reduce at low depths, and don't reduce the first few "best" moves.
-        if (depth >= 3 && moveIndex >= 2) {
-            // Search with a reduced depth first
-            value = alphaBeta(newBoard, depth - 1 - R_LMR, alpha, beta, nextPlayerIndex, turnCount + 1);
+        let score;
+        if (moveIndex === 0) {
+            // --- PVS: Full window search for the first move ---
+            score = -alphaBeta(newBoard, depth - 1, -beta, -alpha, nextPlayerIndex, turnCount + 1);
+        } else {
+            // --- PVS: Null-window search for subsequent moves ---
+            score = -alphaBeta(newBoard, depth - 1, -alpha - 1, -alpha, nextPlayerIndex, turnCount + 1);
 
-            // If the reduced search looks promising, re-search at full depth
-            if ((isMaximizingPlayer && value > alpha) || (!isMaximizingPlayer && value < beta)) {
-                 value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
+            // If it's promising, re-search with the full window
+            if (score > alpha && score < beta) {
+                score = -alphaBeta(newBoard, depth - 1, -beta, -alpha, nextPlayerIndex, turnCount + 1);
             }
-        } else {
-            // Normal full-depth search for the first few moves
-            value = alphaBeta(newBoard, depth - 1, alpha, beta, nextPlayerIndex, turnCount + 1);
         }
-        // --- END LMR LOGIC ---
+        moveIndex++;
 
-        moveIndex++; // Increment move counter
+        bestValue = Math.max(bestValue, score);
+        alpha = Math.max(alpha, bestValue);
 
-        if (isMaximizingPlayer) {
-            bestValue = Math.max(bestValue, value);
-            alpha = Math.max(alpha, bestValue);
-        } else {
-            bestValue = Math.min(bestValue, value);
-            beta = Math.min(beta, bestValue);
-        }
-
-        if (beta <= alpha) {
-            // --- UPDATE HISTORY TABLE ON CUTOFF ---
-            // This move was good, so we reward its placements.
+        if (alpha >= beta) {
             for (const placement of moveObj.move) {
                  historyTable[placement.r][placement.c] += depth * depth;
             }
-            break;
+            break; // Prune
         }
     }
 
@@ -219,9 +164,8 @@ self.onmessage = (e) => {
     }
     
     const { jobId, board, depth, alpha, beta, playerIndex, turnCount, config } = e.data;
-    CONFIG = config; // Make sure config is fresh for each job
+    CONFIG = config; 
 
-    // --- INITIALIZE HISTORY TABLE FOR EACH NEW SEARCH ---
     if (!historyTable.length || historyTable.length !== CONFIG.boardSize) {
         historyTable = Array(CONFIG.boardSize).fill(0).map(() => Array(CONFIG.boardSize).fill(0));
     }
