@@ -356,9 +356,9 @@
         <select id="board-size">
             <option value="9">9 x 9</option>
             <option value="10">10 x 10</option>
-            <option value="11" selected>11 x 11</option>
+            <option value="11">11 x 11</option>
             <option value="12">12 x 12</option>
-            <option value="13" >13 x 13</option>
+            <option value="13" selected>13 x 13</option>
             <option value="14">14 x 14</option>
             <option value="15">15 x 15</option>
         </select>
@@ -844,6 +844,8 @@ class AI {
 
         score += (myCount - enemyCount) * 1000;
 
+        // Island Extension Heuristic: Reward max span of connected component
+        // NEW: Bonus for islands touching the border (applied once per island)
         let maxIslandScore = 0;
         const visited = new Set();
 
@@ -857,6 +859,7 @@ class AI {
                 if(p && (p.color === color || p.color === ally) && !visited.has(key)) {
                     let minR = r, maxR = r;
                     let minC = c, maxC = c;
+                    let touchesBorder = false; // Flag for single bonus application
                     
                     const queue = [{r,c}];
                     visited.add(key);
@@ -864,6 +867,11 @@ class AI {
                     let head = 0;
                     while(head < queue.length) {
                         const curr = queue[head++];
+                        
+                        // Check if current pawn is on border
+                        if (game.getZone(curr.r, curr.c) === ZONE_BORDER) {
+                            touchesBorder = true;
+                        }
                         
                         if(curr.r < minR) minR = curr.r;
                         if(curr.r > maxR) maxR = curr.r;
@@ -889,14 +897,18 @@ class AI {
                         }
                     }
                     
-                    const vSpan = maxR - minR;
-                    const hSpan = maxC - minC;
-                    const islandScore = Math.max(vSpan, hSpan);
+                    let islandScore = Math.max(maxR - minR, maxC - minC);
+                    // Apply Border Access Bonus (equivalent to +2 span units)
+                    if (touchesBorder) {
+                        islandScore += 2;
+                    }
+                    
                     if (islandScore > maxIslandScore) maxIslandScore = islandScore;
                 }
             }
         }
         
+        // 20 pts per unit of span rewards extending chains
         score += maxIslandScore * 20;
         
         return score;
