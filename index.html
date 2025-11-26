@@ -3,84 +3,1347 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konverson Game (Parallel AI)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Konverson v50 - Parallel AI with Iterative Deepening</title>
     <style>
         :root {
-            --board-bg: #1a1a1a;
-            --color-a: #e81123; /* Red */
-            --color-b: #3b82f6; /* Blue */
-            --color-c: #e300BC; /* Pink */
-            --color-d: #22d3ee; /* Cyan */
-            --valid-move-light: rgba(255, 255, 255, 0.2);
-            --selected-glow: rgba(255, 255, 100, 0.7);
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --board-bg: #2d2d2d;
+            --squex-border: #404040;
+            --highlight: rgba(255, 255, 255, 0.1);
+            
+            /* Team 1 */
+            --color-A: #ff4d4d; /* Red */
+            --color-C: #ffb84d; /* Orange */
+            
+            /* Team 2 */
+            --color-B: #4d79ff; /* Blue */
+            --color-D: #4dffff; /* Cyan */
         }
-        body { font-family: 'Roboto Mono', monospace; background-color: #121212; color: #e0e0e0; }
-        #board-size-selector { background-color: #333; border: 1px solid #555; color: white; }
-        .board-container { display: grid; width: 90vw; height: 90vw; max-width: 700px; max-height: 700px; background-color: var(--board-bg); border-radius: 12px; box-shadow: 0 10px 20px rgba(0,0,0,0.3), 0 6px 6px rgba(0,0,0,0.25); padding: 10px; gap: 4px; }
-        .board-square { width: 100%; height: 100%; border-radius: 4px; display: flex; justify-content: center; align-items: center; transition: background-color 0.2s ease, box-shadow 0.2s ease; background-color: #2a2a2a; }
-        
-        .board-square.interior { background-color: #313131; }
-        .board-square.preborder { background-color: #2e2e2e; }
-        .board-square.border { background-color: #2a2a2a; }
-        .board-square.corner { background-color: #222222; }
 
-        .board-square.valid-move { background-color: var(--valid-move-light); cursor: pointer; }
-        .piece { width: 90%; height: 90%; cursor: default; transition: all 0.2s ease-in-out; box-shadow: 0 2px 4px rgba(0,0,0,0.5) inset, 0 2px 4px rgba(0,0,0,0.5); }
-        .piece.posture-new { transform: scale(1); border-radius: 20%; }
-        .piece.posture-old { transform: scale(0.75); border-radius: 50%; }
-        .piece.color-A { background-color: var(--color-a); }
-        .piece.color-B { background-color: var(--color-b); }
-        .piece.color-C { background-color: var(--color-c); }
-        .piece.color-D { background-color: var(--color-d); }
-        .selected-placement { box-shadow: 0 0 10px 3px var(--selected-glow); }
-        .btn { background-color: #333; border: 1px solid #555; transition: all 0.2s ease; }
-        .btn:hover:not(:disabled) { background-color: #444; border-color: #777; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        @keyframes pulse {
-            0% { transform: scale(0.9); box-shadow: 0 0 8px 2px var(--selected-glow); }
-            50% { transform: scale(1.1); box-shadow: 0 0 18px 7px var(--selected-glow); }
-            100% { transform: scale(0.9); box-shadow: 0 0 8px 2px var(--selected-glow); }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
         }
-        .winning-piece .piece { animation: pulse 1.5s ease-in-out infinite; }
+
+        header {
+            text-align: center;
+            padding: 1rem;
+            width: 100%;
+            background: #000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        h1 { margin: 0; font-size: 1.5rem; }
+        p { margin: 5px 0 0; color: #888; font-size: 0.9rem; }
+
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+            width: 100%;
+            max-width: 1000px; /* Increased width to accommodate side panel */
+        }
+
+        #status-bar {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            background: #333;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-sizing: border-box;
+        }
+
+        .status-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .label { font-size: 0.75rem; text-transform: uppercase; color: #aaa; }
+        .value { font-weight: bold; font-size: 1.1rem; }
+
+        /* Main Area Layout */
+        #main-area {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: flex-start;
+            width: 100%;
+            justify-content: center;
+            flex-wrap: wrap; /* Wraps on mobile */
+        }
+
+        /* Stats Box Styling */
+        #stats-box {
+            background-color: #2d2d2d;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 15px;
+            min-width: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        #stats-box h3 {
+            margin: 0 0 10px 0;
+            text-align: center;
+            font-size: 1rem;
+            color: #ccc;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .stat-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+
+        .stat-row.active {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-left: 3px solid #fff;
+        }
+
+        .color-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: bold;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot.bg-A { background-color: var(--color-A); box-shadow: 0 0 5px var(--color-A); }
+        .dot.bg-B { background-color: var(--color-B); box-shadow: 0 0 5px var(--color-B); }
+        .dot.bg-C { background-color: var(--color-C); box-shadow: 0 0 5px var(--color-C); }
+        .dot.bg-D { background-color: var(--color-D); box-shadow: 0 0 5px var(--color-D); }
+
+        .count {
+            font-family: monospace;
+            font-size: 1.1rem;
+        }
+
+        #board {
+            display: grid;
+            gap: 2px;
+            background-color: var(--board-bg);
+            border: 5px solid #555;
+            padding: 5px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            flex-grow: 1;
+            max-width: 600px; /* Limit board width relative to container */
+        }
+
+        .squex {
+            background-color: #383838;
+            border-radius: 2px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            aspect-ratio: 1 / 1;
+        }
+
+        .squex:hover { background-color: #444; }
+        .squex.valid-move { background-color: rgba(100, 255, 100, 0.15); box-shadow: inset 0 0 5px rgba(100,255,100,0.3); }
+        .squex.invalid-move { cursor: not-allowed; }
+        
+        .coord {
+            position: absolute;
+            font-size: 8px;
+            color: #555;
+            pointer-events: none;
+        }
+        .coord.tl { top: 1px; left: 2px; }
+
+        /* Pawn Styles */
+        .pawn {
+            width: 70%;
+            height: 70%;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+            z-index: 2;
+        }
+
+        .pawn.new {
+            border-radius: 3px;
+            border: 2px solid #fff;
+        }
+        
+        .pawn.old {
+            border-radius: 50%;
+            border: 2px solid rgba(0,0,0,0.2);
+            transform: scale(0.9);
+        }
+
+        .pawn.color-A { background-color: var(--color-A); }
+        .pawn.color-B { background-color: var(--color-B); }
+        .pawn.color-C { background-color: var(--color-C); }
+        .pawn.color-D { background-color: var(--color-D); }
+
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .pawn.appearing { animation: popIn 0.3s ease-out; }
+
+        /* --- PIECEMEAL MORPH ANIMATION --- */
+        .pawn.converting {
+            position: relative;
+        }
+
+        .pawn.converting::after {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px; 
+            background-color: var(--old-color);
+            border-radius: 50%; 
+            z-index: 5;
+            pointer-events: none;
+            animation: piecemealErode 3s ease-in-out forwards;
+        }
+
+        @keyframes piecemealErode {
+            0% { clip-path: circle(100%); }
+            20% { clip-path: circle(85% at 40% 40%); }
+            40% { clip-path: circle(70% at 60% 60%); }
+            60% { clip-path: circle(50% at 30% 70%); }
+            80% { clip-path: circle(25% at 70% 30%); }
+            100% { clip-path: circle(0% at 50% 50%); opacity: 0; }
+        }
+
+        /* --- WINNING ANIMATION --- */
+        @keyframes winPulse {
+            0% { transform: scale(0.9); box-shadow: 0 0 5px rgba(255,255,255,0.8); z-index: 10; }
+            50% { transform: scale(1.15); box-shadow: 0 0 20px rgba(255,255,255,1), 0 0 30px currentColor; z-index: 10; }
+            100% { transform: scale(0.9); box-shadow: 0 0 5px rgba(255,255,255,0.8); z-index: 10; }
+        }
+        
+        .pawn.winning {
+            animation: winPulse 1.2s infinite ease-in-out;
+            border-color: #fff !important;
+            border-width: 3px !important;
+        }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            background: #444;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #555; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        select {
+            background: #444;
+            color: white;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        #ai-status {
+            font-size: 0.8rem;
+            color: #888;
+            width: 100%;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        #message-area {
+            height: 20px;
+            color: #ff6b6b;
+            font-weight: bold;
+            font-size: 0.9rem;
+            text-align: center;
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+<body>
 
-    <div class="text-center mb-4">
-        <h1 class="text-4xl md:text-5xl font-bold tracking-wider">KONVERSON</h1>
-        <p class="text-gray-400">The Game of Connexion and Conversion</p>
-    </div>
+<header>
+    <h1>Konverson v50</h1>
+    <p>Parallel AI + Iterative Deepening + NMP (No QS)</p>
+</header>
 
-    <div id="game-status" class="w-full max-w-lg bg-gray-800 rounded-lg p-3 mb-4 text-center shadow-lg">
-        <div class="flex items-center justify-center">
-            <p id="turn-indicator" class="text-lg font-semibold mr-3">Loading...</p>
-            <div id="turn-color-indicator" class="w-5 h-5 rounded-full shadow-md transition-colors duration-300"></div>
+<div id="game-container">
+    <div id="status-bar">
+        <div class="status-item">
+            <span class="label">Turn</span>
+            <span class="value" id="current-player-display">Player A</span>
         </div>
-        <p id="info-indicator" class="text-sm text-gray-400">Game is setting up.</p>
-    </div>
-
-    <div id="board" class="board-container mb-4"></div>
-
-    <div class="flex items-center space-x-4">
-        <button id="reset-button" class="btn text-white font-bold py-2 px-4 rounded-lg">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="inline-block mr-2" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>
-            Reset Game
-        </button>
-        <div class="flex items-center space-x-2">
-            <label for="board-size-selector">Size:</label>
-            <select id="board-size-selector" class="rounded p-2">
-                <option value="9">9x9</option>
-                <option value="11" selected>11x11</option>
-                <option value="13">13x13</option>
-				<option value="15">15x15</option>
-            </select>
+        <div class="status-item">
+            <span class="label">Placements Left</span>
+            <span class="value" id="placements-left">1</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Status</span>
+            <span class="value" id="game-status">Active</span>
         </div>
     </div>
 
-    <script src="game_logic.js"></script>
+    <div id="message-area"></div>
+
+    <!-- New Flex Container for Side-by-Side Layout -->
+    <div id="main-area">
+        <!-- New Stats Box -->
+        <div id="stats-box">
+            <h3>Turn Succession</h3>
+            <div class="stat-row" id="stat-A">
+                <div class="color-label"><span class="dot bg-A"></span> Color A</div>
+                <span class="count">0</span>
+            </div>
+            <div class="stat-row" id="stat-B">
+                <div class="color-label"><span class="dot bg-B"></span> Color B</div>
+                <span class="count">0</span>
+            </div>
+            <div class="stat-row" id="stat-C">
+                <div class="color-label"><span class="dot bg-C"></span> Color C</div>
+                <span class="count">0</span>
+            </div>
+            <div class="stat-row" id="stat-D">
+                <div class="color-label"><span class="dot bg-D"></span> Color D</div>
+                <span class="count">0</span>
+            </div>
+        </div>
+
+        <div id="board">
+            <!-- JS generates grid here -->
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="btn-reset">New Game</button>
+        <select id="ai-difficulty">
+            <option value="1">Easy (Depth 1)</option>
+            <option value="2" selected>Normal (Depth 2)</option>
+            <option value="3">Hard (Depth 3)</option>
+            <option value="4">Deep (Depth 4)</option>
+            <option value="5">Master (Depth 5)</option>
+        </select>
+        <select id="board-size">
+            <option value="9">9 x 9</option>
+            <option value="10">10 x 10</option>
+            <option value="11" selected>11 x 11</option>
+            <option value="12">12 x 12</option>
+            <option value="13" >13 x 13</option>
+            <option value="14">14 x 14</option>
+            <option value="15">15 x 15</option>
+        </select>
+        <div id="ai-status"></div>
+    </div>
+</div>
+
+<script id="game-logic">
+/**
+ * Shared Game Logic & AI
+ */
+
+const DEFAULT_BOARD_SIZE = 13;
+const COLORS = ['A', 'B', 'C', 'D'];
+const TEAMS = {
+    'A': 'AC', 'C': 'AC',
+    'B': 'BD', 'D': 'BD'
+};
+const PAWN_NEW = 'new';
+const PAWN_OLD = 'old';
+
+const DIRS = [
+    [-1, -1], [-1, 0], [-1, 1],
+    [0, -1],           [0, 1],
+    [1, -1],  [1, 0],  [1, 1]
+];
+
+const ZONE_INTERIOR = 0;
+const ZONE_PREBORDER = 1;
+const ZONE_BORDER = 2;
+const ZONE_CORNER = 3;
+
+class Pawn {
+    constructor(color, posture = PAWN_NEW) {
+        this.color = color;
+        this.posture = posture;
+        this.id = Math.random().toString(36).substr(2, 9);
+        this.prevColor = null; 
+    }
+}
+
+class GameState {
+    constructor(size = DEFAULT_BOARD_SIZE) {
+        this.size = size;
+        this.grid = Array(size).fill(null).map(() => Array(size).fill(null));
+        this.turnIndex = 0; 
+        this.placementsLeft = 1;
+        this.isFirstMoveOfMatch = true;
+        this.firstPawnLoc = null;
+        this.winner = null;
+        this.winningPath = null;
+        
+        this.zobristTable = [];
+        this.initZobrist();
+    }
+
+    static fromData(data) {
+        const game = new GameState(data.size);
+        game.turnIndex = data.turnIndex;
+        game.placementsLeft = data.placementsLeft;
+        game.isFirstMoveOfMatch = data.isFirstMoveOfMatch;
+        game.firstPawnLoc = data.firstPawnLoc;
+        game.winner = data.winner;
+        game.winningPath = data.winningPath;
+        
+        for(let r=0; r<data.size; r++) {
+            for(let c=0; c<data.size; c++) {
+                if(data.grid[r][c]) {
+                    const pData = data.grid[r][c];
+                    const p = new Pawn(pData.color, pData.posture);
+                    p.id = pData.id;
+                    p.prevColor = pData.prevColor;
+                    game.grid[r][c] = p;
+                }
+            }
+        }
+        return game;
+    }
+
+    initZobrist() {
+        for(let i=0; i<this.size * this.size * 8; i++) {
+            this.zobristTable.push(Math.floor(Math.random() * 2147483648));
+        }
+    }
+
+    computeHash() {
+        let h = 0;
+        for(let r=0; r<this.size; r++) {
+            for(let c=0; c<this.size; c++) {
+                const p = this.grid[r][c];
+                if(p) {
+                    const colorIdx = COLORS.indexOf(p.color);
+                    const postIdx = p.posture === PAWN_NEW ? 0 : 1;
+                    const idx = (r * this.size + c) * 8 + (colorIdx * 2 + postIdx);
+                    h ^= this.zobristTable[idx];
+                }
+            }
+        }
+        return h;
+    }
+
+    clone() {
+        const newGame = new GameState(this.size);
+        for(let r=0; r<this.size; r++) {
+            for(let c=0; c<this.size; c++) {
+                if (this.grid[r][c]) {
+                    newGame.grid[r][c] = {
+                        color: this.grid[r][c].color,
+                        posture: this.grid[r][c].posture,
+                        id: this.grid[r][c].id,
+                        prevColor: this.grid[r][c].prevColor
+                    };
+                }
+            }
+        }
+        newGame.turnIndex = this.turnIndex;
+        newGame.placementsLeft = this.placementsLeft;
+        newGame.isFirstMoveOfMatch = this.isFirstMoveOfMatch;
+        newGame.firstPawnLoc = this.firstPawnLoc ? {...this.firstPawnLoc} : null;
+        newGame.winner = this.winner;
+        newGame.winningPath = this.winningPath ? [...this.winningPath] : null;
+        return newGame;
+    }
+
+    getCurrentColor() {
+        return COLORS[this.turnIndex];
+    }
+
+    getZone(r, c) {
+        const last = this.size - 1;
+        if ((r===0 && c===0) || (r===0 && c===last) || (r===last && c===0) || (r===last && c===last)) 
+            return ZONE_CORNER;
+        if (r===0 || r===last || c===0 || c===last) 
+            return ZONE_BORDER;
+        if (r===1 || r===last-1 || c===1 || c===last-1) 
+            return ZONE_PREBORDER;
+        return ZONE_INTERIOR;
+    }
+
+    hasNeighbor(r, c, zoneType = null) {
+        for (let d of DIRS) {
+            const nr = r + d[0];
+            const nc = c + d[1];
+            if (nr >= 0 && nr < this.size && nc >= 0 && nc < this.size) {
+                if (this.grid[nr][nc]) {
+                    if (zoneType === null) return true;
+                    if (this.getZone(nr, nc) === zoneType) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    hasDiagonalPreborderNeighbor(r, c) {
+        const dr = (r === 0) ? 1 : -1;
+        const dc = (c === 0) ? 1 : -1;
+        const nr = r + dr;
+        const nc = c + dc;
+        return (this.grid[nr][nc] !== null);
+    }
+
+    isValidMove(r, c) {
+        if (this.winner) return false;
+        if (this.grid[r][c] !== null) return false; 
+
+        if (this.firstPawnLoc) {
+            const dist = Math.max(Math.abs(r - this.firstPawnLoc.r), Math.abs(c - this.firstPawnLoc.c));
+            if (dist < 3) return false;
+        }
+
+        const zone = this.getZone(r, c);
+        if (zone === ZONE_INTERIOR) return true;
+        if (zone === ZONE_PREBORDER) return this.hasNeighbor(r, c, ZONE_INTERIOR);
+        if (zone === ZONE_BORDER) return this.hasNeighbor(r, c, ZONE_PREBORDER);
+        if (zone === ZONE_CORNER) return this.hasDiagonalPreborderNeighbor(r, c);
+        return false;
+    }
+
+    getAllLegalMoves() {
+        const moves = [];
+        for(let r=0; r<this.size; r++) {
+            for(let c=0; c<this.size; c++) {
+                if (this.isValidMove(r, c)) {
+                    moves.push({r, c});
+                }
+            }
+        }
+        return moves;
+    }
+
+    clearConversionFlags() {
+        for(let r=0; r<this.size; r++) {
+            for(let c=0; c<this.size; c++) {
+                if (this.grid[r][c]) {
+                     delete this.grid[r][c].convertedRecently;
+                }
+            }
+        }
+    }
+
+    makeNullMove() {
+        if (this.placementsLeft === 1) {
+            this.endTurn();
+        } else {
+            this.placementsLeft--;
+        }
+    }
+
+    placePawn(r, c) {
+        if (!this.isValidMove(r, c)) return false;
+
+        this.clearConversionFlags();
+
+        const color = this.getCurrentColor();
+        this.grid[r][c] = new Pawn(color, PAWN_NEW);
+        this.performConversions(r, c, color);
+
+        if (this.checkWin(color)) {
+            this.winner = color;
+            return true;
+        }
+
+        this.placementsLeft--;
+        if (this.placementsLeft === 0) {
+            this.endTurn();
+        } else {
+            this.firstPawnLoc = {r, c};
+            if (this.getAllLegalMoves().length === 0) {
+                this.endTurn();
+            }
+        }
+        return true;
+    }
+
+    performConversions(r, c, myColor) {
+        for (let d of DIRS) {
+            const path = [];
+            let currR = r + d[0];
+            let currC = c + d[1];
+            let foundPincer = false;
+
+            while (currR >= 0 && currR < this.size && currC >= 0 && currC < this.size) {
+                const p = this.grid[currR][currC];
+                if (!p) break;
+                if (p.color === myColor) {
+                    foundPincer = true;
+                    break;
+                }
+                if (p.posture === PAWN_NEW) break;
+                path.push({r: currR, c: currC, pawn: p});
+                currR += d[0];
+                currC += d[1];
+            }
+
+            if (foundPincer && path.length > 0) {
+                for (let item of path) {
+                    item.pawn.prevColor = item.pawn.color; 
+                    item.pawn.color = myColor;
+                    item.pawn.convertedRecently = true;
+                }
+            }
+        }
+    }
+
+    endTurn() {
+        this.isFirstMoveOfMatch = false;
+        this.turnIndex = (this.turnIndex + 1) % 4;
+        const nextColor = COLORS[this.turnIndex];
+
+        for(let r=0; r<this.size; r++) {
+            for(let c=0; c<this.size; c++) {
+                const p = this.grid[r][c];
+                if (p && p.color === nextColor && p.posture === PAWN_NEW) {
+                    p.posture = PAWN_OLD;
+                }
+            }
+        }
+        this.placementsLeft = 2;
+        this.firstPawnLoc = null;
+        if (this.getAllLegalMoves().length === 0) {
+            this.winner = 'Draw';
+        }
+    }
+
+    checkWin(color) {
+        let startNodesNS = [];
+        for(let c=1; c<this.size-1; c++) {
+            if(this.grid[0][c] && this.grid[0][c].color === color) {
+                startNodesNS.push({r:0, c:c});
+            }
+        }
+        let path = this.bfsConnection(startNodesNS, color, 'NS');
+        if (path) {
+            this.winningPath = path;
+            return true;
+        }
+
+        let startNodesWE = [];
+        for(let r=1; r<this.size-1; r++) {
+            if(this.grid[r][0] && this.grid[r][0].color === color) {
+                startNodesWE.push({r:r, c:0});
+            }
+        }
+        path = this.bfsConnection(startNodesWE, color, 'WE');
+        if (path) {
+            this.winningPath = path;
+            return true;
+        }
+
+        return false;
+    }
+
+    bfsConnection(startNodes, color, type) {
+        let queue = [];
+        let visited = new Set();
+        let parentMap = new Map();
+
+        for (let node of startNodes) {
+            queue.push(node);
+            visited.add(`${node.r},${node.c}`);
+            parentMap.set(`${node.r},${node.c}`, null);
+        }
+
+        let head = 0;
+        while(head < queue.length) {
+            const curr = queue[head++];
+            
+            if ((type === 'NS' && curr.r === this.size - 1) || 
+                (type === 'WE' && curr.c === this.size - 1)) {
+                
+                let path = [];
+                let currKey = `${curr.r},${curr.c}`;
+                while (currKey) {
+                    const [r, c] = currKey.split(',').map(Number);
+                    path.push({r, c});
+                    const parent = parentMap.get(currKey);
+                    currKey = parent ? `${parent.r},${parent.c}` : null;
+                }
+                return path;
+            }
+
+            for(let d of DIRS) {
+                const nr = curr.r + d[0];
+                const nc = curr.c + d[1];
+                if (this.getZone(nr, nc) === ZONE_CORNER) continue;
+                if (nr >= 0 && nr < this.size && nc >= 0 && nc < this.size) {
+                    const key = `${nr},${nc}`;
+                    if (!visited.has(key)) {
+                        const p = this.grid[nr][nc];
+                        if (p && p.color === color) {
+                            visited.add(key);
+                            parentMap.set(key, {r: curr.r, c: curr.c});
+                            queue.push({r:nr, c:nc});
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+}
+
+class AI {
+    constructor() {
+        this.transpositionTable = new Map();
+        this.maxDepth = 3;
+        this.nodesVisited = 0;
+    }
+
+    getCandidateMoves(game) {
+        const allLegal = game.getAllLegalMoves();
+        let isEmpty = true;
+        for(let r=0; r<game.size; r++) {
+            for(let c=0; c<game.size; c++) {
+                if(game.grid[r][c]) {
+                    isEmpty = false;
+                    break;
+                }
+            }
+            if(!isEmpty) break;
+        }
+        if (isEmpty) return allLegal;
+        const contactMoves = allLegal.filter(m => game.hasNeighbor(m.r, m.c));
+        return contactMoves.length > 0 ? contactMoves : allLegal;
+    }
+
+    orderMoves(game, moves) {
+        moves.sort((a, b) => {
+            if (a.score !== undefined && b.score !== undefined) {
+                return b.score - a.score;
+            }
+            const distA = Math.abs(a.r - game.size/2) + Math.abs(a.c - game.size/2);
+            const distB = Math.abs(b.r - game.size/2) + Math.abs(b.c - game.size/2);
+            return distA - distB; 
+        });
+    }
+
+    isSafeOnAxis(game, r, c, dr, dc, color) {
+        let safePos = true;
+        let currR = r + dr;
+        let currC = c + dc;
+        while (currR >= 0 && currR < game.size && currC >= 0 && currC < game.size) {
+            const p = game.grid[currR][currC];
+            if (!p || p.color !== color) {
+                safePos = false;
+                break;
+            }
+            currR += dr;
+            currC += dc;
+        }
+
+        let safeNeg = true;
+        currR = r - dr;
+        currC = c - dc;
+        while (currR >= 0 && currR < game.size && currC >= 0 && currC < game.size) {
+            const p = game.grid[currR][currC];
+            if (!p || p.color !== color) {
+                safeNeg = false;
+                break;
+            }
+            currR -= dr;
+            currC -= dc;
+        }
+        return safePos || safeNeg;
+    }
+
+    evaluate(game) {
+        if (game.winner) return -100000; // Increased win score
+        const color = game.getCurrentColor();
+        const ally = TEAMS[color] === 'AC' ? (color==='A'?'C':'A') : (color==='B'?'D':'B');
+        
+        let score = 0;
+        let myCount = 0;
+        let enemyCount = 0;
+
+        const checkAxes = [[0,1], [1,0], [1,1], [1,-1]];
+
+        for(let r=0; r<game.size; r++) {
+            for(let c=0; c<game.size; c++) {
+                const p = game.grid[r][c];
+                if(p) {
+                    let val = 40; 
+                    if (p.posture === PAWN_NEW) val += 5;
+                    const distCenter = Math.abs(r - game.size/2) + Math.abs(c - game.size/2);
+                    val += (game.size - distCenter);
+                    
+                    let safeAxes = 0;
+                    for (let axis of checkAxes) {
+                        if (this.isSafeOnAxis(game, r, c, axis[0], axis[1], p.color)) {
+                            safeAxes++;
+                        }
+                    }
+                    val += safeAxes * 20;
+
+                    // Border Safety Heuristic
+                    if (game.getZone(r, c) === ZONE_BORDER) {
+                        const pAlly = (p.color === 'A' ? 'C' : (p.color === 'C' ? 'A' : (p.color === 'B' ? 'D' : 'B')));
+                        let hasAlly = false;
+                        for(let d of DIRS) {
+                            const nr = r + d[0];
+                            const nc = c + d[1];
+                            if(nr >= 0 && nr < game.size && nc >= 0 && nc < game.size) {
+                                const nb = game.grid[nr][nc];
+                                if(nb && nb.color === pAlly) {
+                                    hasAlly = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if(hasAlly) val += 30; 
+                    }
+
+                    if(p.color === color || p.color === ally) {
+                        score += val;
+                        myCount++;
+                    } else {
+                        score -= val;
+                        enemyCount++;
+                    }
+                }
+            }
+        }
+
+        score += (myCount - enemyCount) * 1000;
+
+        let maxIslandScore = 0;
+        const visited = new Set();
+
+        for(let r=0; r<game.size; r++) {
+            for(let c=0; c<game.size; c++) {
+                if (game.getZone(r, c) === ZONE_CORNER) continue;
+
+                const p = game.grid[r][c];
+                const key = `${r},${c}`;
+                
+                if(p && (p.color === color || p.color === ally) && !visited.has(key)) {
+                    let minR = r, maxR = r;
+                    let minC = c, maxC = c;
+                    
+                    const queue = [{r,c}];
+                    visited.add(key);
+                    
+                    let head = 0;
+                    while(head < queue.length) {
+                        const curr = queue[head++];
+                        
+                        if(curr.r < minR) minR = curr.r;
+                        if(curr.r > maxR) maxR = curr.r;
+                        if(curr.c < minC) minC = curr.c;
+                        if(curr.c > maxC) maxC = curr.c;
+                        
+                        for(let d of DIRS) {
+                            const nr = curr.r + d[0];
+                            const nc = curr.c + d[1];
+                            
+                            if(nr >= 0 && nr < game.size && nc >= 0 && nc < game.size) {
+                                if(game.getZone(nr, nc) === ZONE_CORNER) continue;
+                                
+                                const nKey = `${nr},${nc}`;
+                                if(!visited.has(nKey)) {
+                                    const np = game.grid[nr][nc];
+                                    if(np && (np.color === color || np.color === ally)) {
+                                        visited.add(nKey);
+                                        queue.push({r:nr, c:nc});
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    const vSpan = maxR - minR;
+                    const hSpan = maxC - minC;
+                    const islandScore = Math.max(vSpan, hSpan);
+                    if (islandScore > maxIslandScore) maxIslandScore = islandScore;
+                }
+            }
+        }
+        
+        score += maxIslandScore * 20;
+        
+        return score;
+    }
+
+    alphaBeta(game, depth, alpha, beta, isPvNode) {
+        this.nodesVisited++;
+        const hash = game.computeHash();
+        const ttEntry = this.transpositionTable.get(hash);
+        if (ttEntry && ttEntry.depth >= depth) {
+            if (ttEntry.flag === 'exact') return ttEntry.score;
+            if (ttEntry.flag === 'lower' && ttEntry.score > alpha) alpha = ttEntry.score;
+            if (ttEntry.flag === 'upper' && ttEntry.score < beta) beta = ttEntry.score;
+            if (alpha >= beta) return ttEntry.score;
+        }
+
+        if (game.winner) return this.evaluate(game);
+        
+        // Leaf node? 
+        if (depth === 0) {
+            return this.evaluate(game);
+        }
+
+        // --- Null Move Pruning ---
+        // Only perform if depth is reasonable and not a PV node (to avoid pruning winning lines)
+        // R = Reduction. Common is R=2.
+        if (depth >= 3 && !isPvNode && !game.winner) {
+            const clone = game.clone();
+            clone.makeNullMove(); 
+            // Check if null move caused end of game or turn pass
+            // We perform a shallow search with reduced depth
+            const R = 2;
+            const score = -this.alphaBeta(clone, depth - 1 - R, -beta, -beta + 1, false);
+            
+            if (score >= beta) {
+                return beta; // Cutoff
+            }
+        }
+        // -------------------------
+
+        const moves = this.getCandidateMoves(game);
+        if (moves.length === 0) return this.evaluate(game);
+
+        this.orderMoves(game, moves);
+        
+        let bestScore = -Infinity;
+        let moveCount = 0;
+        let ttFlag = 'upper';
+
+        for (let move of moves) {
+            moveCount++;
+            const clone = game.clone();
+            clone.placePawn(move.r, move.c);
+            let score;
+            
+            if (moveCount === 1) {
+                score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, true);
+            } else {
+                let reduction = 0;
+                if (depth >= 3 && moveCount > 4 && !isPvNode) reduction = 1;
+                score = -this.alphaBeta(clone, depth - 1 - reduction, -alpha - 1, -alpha, false);
+                if (score > alpha && (reduction > 0 || (score < beta))) {
+                    score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, false);
+                }
+            }
+
+            if (score > bestScore) bestScore = score;
+            if (score > alpha) {
+                alpha = score;
+                ttFlag = 'exact';
+            }
+            if (alpha >= beta) {
+                ttFlag = 'lower';
+                break;
+            }
+        }
+
+        this.transpositionTable.set(hash, { score: bestScore, depth: depth, flag: ttFlag });
+        return bestScore;
+    }
+
+    searchRootSubset(game, movesToSearch, targetDepth) {
+        this.nodesVisited = 0;
+        this.transpositionTable.clear();
+
+        let bestMove = null;
+        let bestScore = -Infinity;
+
+        for (let currentDepth = 1; currentDepth <= targetDepth; currentDepth++) {
+            
+            if (currentDepth > 1) {
+                this.orderMoves(game, movesToSearch);
+            }
+
+            let iterationBestScore = -Infinity;
+            let iterationBestMove = null;
+            let alpha = -Infinity;
+            let beta = Infinity;
+
+            for (let move of movesToSearch) {
+                const clone = game.clone();
+                clone.placePawn(move.r, move.c);
+                
+                const score = -this.alphaBeta(clone, currentDepth - 1, -beta, -alpha, true);
+                move.score = score;
+
+                if (score > iterationBestScore) {
+                    iterationBestScore = score;
+                    iterationBestMove = move;
+                }
+                alpha = Math.max(alpha, iterationBestScore);
+            }
+            
+            bestScore = iterationBestScore;
+            bestMove = iterationBestMove;
+        }
+
+        return {
+            bestMove: bestMove,
+            score: bestScore,
+            nodesVisited: this.nodesVisited
+        };
+    }
+}
+</script>
+
+<script>
+/**
+ * Main UI Script
+ */
+
+const logicSource = document.getElementById('game-logic').textContent;
+const workerHandlerSource = `
+self.onmessage = function(e) {
+    const { gameStateData, movesToSearch, depth } = e.data;
+    const game = GameState.fromData(gameStateData);
+    const ai = new AI();
+    const result = ai.searchRootSubset(game, movesToSearch, depth);
+    postMessage(result);
+};
+`;
+
+const blob = new Blob([logicSource + workerHandlerSource], {type: 'application/javascript'});
+const workerUrl = URL.createObjectURL(blob);
+
+// --- Worker Manager ---
+class ParallelAI {
+    constructor() {
+        this.numWorkers = navigator.hardwareConcurrency || 4;
+        this.localAI = new AI(); // Used for move generation only
+    }
+
+    async getBestMoveParallel(game, depth) {
+        const candidates = this.localAI.getCandidateMoves(game);
+        
+        if (candidates.length === 0) return null;
+        if (candidates.length === 1) return candidates[0];
+
+        this.localAI.orderMoves(game, candidates);
+
+        const chunks = Array.from({length: this.numWorkers}, () => []);
+        candidates.forEach((move, i) => {
+            chunks[i % this.numWorkers].push(move);
+        });
+
+        const promises = chunks.map((chunk, i) => {
+            if (chunk.length === 0) return Promise.resolve(null);
+            
+            return new Promise((resolve, reject) => {
+                const worker = new Worker(workerUrl);
+                
+                worker.onmessage = (e) => {
+                    resolve(e.data);
+                    worker.terminate();
+                };
+                
+                worker.onerror = (err) => {
+                    console.error("Worker Error:", err);
+                    reject(err);
+                    worker.terminate();
+                };
+
+                worker.postMessage({
+                    gameStateData: game, 
+                    movesToSearch: chunk,
+                    depth: depth
+                });
+            });
+        });
+
+        const statusDiv = document.getElementById('ai-status');
+        statusDiv.innerText = `Dispatching ${candidates.length} moves (Iterative Deepening + NMP + QS)...`;
+
+        const results = await Promise.all(promises);
+        
+        let globalBestScore = -Infinity;
+        let globalBestMove = null;
+        let totalNodes = 0;
+
+        results.forEach(res => {
+            if (res) {
+                totalNodes += res.nodesVisited;
+                if (res.score > globalBestScore) {
+                    globalBestScore = res.score;
+                    globalBestMove = res.bestMove;
+                }
+            }
+        });
+
+        console.log(`Parallel Search Completed. Total Nodes: ${totalNodes}, Best Score: ${globalBestScore}`);
+        statusDiv.innerText = `Visited ${totalNodes} nodes using ID + Parallel + NMP + QS.`;
+        
+        return globalBestMove;
+    }
+}
+
+// --- Main Game Loop ---
+
+const boardEl = document.getElementById('board');
+const statusDisplay = document.getElementById('current-player-display');
+const placementsDisplay = document.getElementById('placements-left');
+const statusText = document.getElementById('game-status');
+const msgArea = document.getElementById('message-area');
+const btnReset = document.getElementById('btn-reset');
+// btnAI removed
+const diffSelect = document.getElementById('ai-difficulty');
+const sizeSelect = document.getElementById('board-size');
+const aiStatus = document.getElementById('ai-status');
+
+const AI_TEAMS = ['B', 'D']; // AI plays Blue/Cyan
+
+let game = new GameState();
+const parallelAI = new ParallelAI();
+let uiLocked = false;
+
+function initUI() {
+    const size = game.size;
+    boardEl.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+    boardEl.innerHTML = '';
     
-    <script src="main.js" defer></script>
+    for(let r=0; r<size; r++) {
+        for(let c=0; c<size; c++) {
+            const sq = document.createElement('div');
+            sq.className = 'squex';
+            sq.dataset.r = r;
+            sq.dataset.c = c;
+            
+            const coord = document.createElement('span');
+            coord.className = 'coord tl';
+            sq.appendChild(coord);
+
+            sq.addEventListener('click', () => handleSquareClick(r, c));
+            boardEl.appendChild(sq);
+        }
+    }
+    render();
+}
+
+// Main Loop to check for AI turn
+async function gameLoop() {
+    const currentColor = game.getCurrentColor();
+    
+    if (game.winner) return;
+
+    if (AI_TEAMS.includes(currentColor)) {
+        uiLocked = true;
+        msgArea.innerText = `AI (${currentColor}) Thinking...`;
+        
+        // Delay before start for visual pacing
+        setTimeout(() => executeAIMove(), 500); 
+    } else {
+        uiLocked = false;
+        msgArea.innerText = `Your Turn (${currentColor})`;
+    }
+}
+
+async function executeAIMove() {
+    if (game.winner) return;
+    
+    // Capture current game instance to handle resets during thought
+    const processingGame = game; 
+    const depth = parseInt(diffSelect.value);
+    
+    try {
+        const move = await parallelAI.getBestMoveParallel(processingGame, depth);
+        
+        // Check if game was reset while thinking
+        if (game !== processingGame) return;
+
+        if (move) {
+            game.placePawn(move.r, move.c);
+            render();
+            
+            if (game.winner) {
+                handleWin();
+            } else {
+                // Continue loop (Next AI move or Human turn)
+                // 1000ms Delay for animation visibility
+                setTimeout(gameLoop, 1000); 
+            }
+        } else {
+            msgArea.innerText = "AI Resigns";
+            handleWin(); 
+        }
+    } catch (e) {
+        console.error(e);
+        msgArea.innerText = "AI Error";
+    }
+}
+
+function handleSquareClick(r, c) {
+    if (game.winner || uiLocked) return;
+    
+    msgArea.innerText = "";
+    
+    if (game.placePawn(r, c)) {
+        render();
+        if (game.winner) handleWin();
+        else gameLoop(); // Trigger next step/AI
+    } else {
+        msgArea.innerText = "Invalid Move! Check rules.";
+        const sq = document.querySelector(`.squex[data-r='${r}'][data-c='${c}']`);
+        sq.classList.add('invalid-move');
+        setTimeout(() => sq.classList.remove('invalid-move'), 500);
+    }
+}
+
+function handleWin() {
+    statusText.innerText = "GAME OVER";
+    statusText.style.color = "#4dff4d";
+    if (game.winner === 'Draw') {
+        msgArea.innerText = "Stalemate! No moves possible.";
+    } else {
+        msgArea.innerText = `Victory for Color ${game.winner}!`;
+    }
+    uiLocked = true;
+    render(); // Force render to show winning path
+}
+
+function render() {
+    const size = game.size;
+    for(let r=0; r<size; r++) {
+        for(let c=0; c<size; c++) {
+            const sq = document.querySelector(`.squex[data-r='${r}'][data-c='${c}']`);
+            
+            const existingPawn = sq.querySelector('.pawn');
+            const p = game.grid[r][c];
+
+            if (!p && existingPawn) {
+                existingPawn.remove();
+                continue;
+            }
+
+            if (p) {
+                let pawnDiv = existingPawn;
+                if (!pawnDiv || pawnDiv.dataset.id !== p.id) {
+                    if (pawnDiv) pawnDiv.remove();
+                    pawnDiv = document.createElement('div');
+                    pawnDiv.dataset.id = p.id;
+                    sq.appendChild(pawnDiv);
+                    if (game.firstPawnLoc && game.firstPawnLoc.r === r && game.firstPawnLoc.c === c) {
+                        pawnDiv.classList.add('appearing');
+                    }
+                }
+
+                pawnDiv.className = `pawn color-${p.color} ${p.posture}`;
+
+                if (p.convertedRecently) {
+                    pawnDiv.classList.add('converting');
+                    pawnDiv.style.setProperty('--old-color', `var(--color-${p.prevColor})`);
+                } else {
+                    pawnDiv.classList.remove('converting');
+                    pawnDiv.style.removeProperty('--old-color');
+                }
+
+                if (game.winningPath) {
+                    const isWinning = game.winningPath.some(wp => wp.r === r && wp.c === c);
+                    if (isWinning) {
+                        pawnDiv.classList.add('winning');
+                    } else {
+                        pawnDiv.classList.remove('winning');
+                    }
+                }
+            }
+
+            sq.classList.remove('valid-move');
+        }
+    }
+
+    if (!game.winner) {
+        for(let r=0; r<size; r++) {
+            for(let c=0; c<size; c++) {
+                if (game.isValidMove(r, c)) {
+                    const sq = document.querySelector(`.squex[data-r='${r}'][data-c='${c}']`);
+                    sq.classList.add('valid-move');
+                }
+            }
+        }
+    }
+    updateStatus();
+}
+
+function updateStatus() {
+    const c = game.getCurrentColor();
+    statusDisplay.innerText = `Player ${c}`;
+    statusDisplay.style.color = `var(--color-${c})`;
+    placementsDisplay.innerText = game.placementsLeft;
+    
+    // Update Stats Box
+    const counts = { A: 0, B: 0, C: 0, D: 0 };
+    for(let r=0; r<game.size; r++) {
+        for(let c=0; c<game.size; c++) {
+            const p = game.grid[r][c];
+            if(p) counts[p.color]++;
+        }
+    }
+    
+    // Update counts
+    document.querySelector('#stat-A .count').innerText = counts.A;
+    document.querySelector('#stat-B .count').innerText = counts.B;
+    document.querySelector('#stat-C .count').innerText = counts.C;
+    document.querySelector('#stat-D .count').innerText = counts.D;
+    
+    // Highlight current turn
+    ['A','B','C','D'].forEach(color => {
+        const row = document.getElementById(`stat-${color}`);
+        if(color === c) row.classList.add('active');
+        else row.classList.remove('active');
+    });
+}
+
+btnReset.addEventListener('click', () => {
+    const size = parseInt(sizeSelect.value);
+    game = new GameState(size);
+    uiLocked = false;
+    statusText.innerText = "Active";
+    statusText.style.color = "#eee";
+    msgArea.innerText = "";
+    aiStatus.innerText = "";
+    initUI(); // Re-init grid for new size
+    gameLoop(); // Check if AI starts (unlikely for A, but safe)
+});
+
+// Initial Start
+initUI();
+gameLoop();
+
+</script>
 </body>
 </html>
