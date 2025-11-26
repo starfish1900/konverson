@@ -295,7 +295,7 @@
 
 <header>
     <h1>Konverson v50</h1>
-    <p>Parallel AI + Iterative Deepening + NMP (No QS)</p>
+    <p>Parallel AI + Iterative Deepening (No NMP)</p>
 </header>
 
 <div id="game-container">
@@ -559,14 +559,6 @@ class GameState {
         }
     }
 
-    makeNullMove() {
-        if (this.placementsLeft === 1) {
-            this.endTurn();
-        } else {
-            this.placementsLeft--;
-        }
-    }
-
     placePawn(r, c) {
         if (!this.isValidMove(r, c)) return false;
 
@@ -599,15 +591,26 @@ class GameState {
             let currR = r + d[0];
             let currC = c + d[1];
             let foundPincer = false;
+            let lineEnemyColor = null; // Track the specific color being captured
 
             while (currR >= 0 && currR < this.size && currC >= 0 && currC < this.size) {
                 const p = this.grid[currR][currC];
                 if (!p) break;
+                
                 if (p.color === myColor) {
                     foundPincer = true;
                     break;
                 }
+                
                 if (p.posture === PAWN_NEW) break;
+                
+                // Check homogeneity of the line
+                if (lineEnemyColor === null) {
+                    lineEnemyColor = p.color;
+                } else if (p.color !== lineEnemyColor) {
+                    break; // Mixed colors -> invalid capture
+                }
+
                 path.push({r: currR, c: currC, pawn: p});
                 currR += d[0];
                 currC += d[1];
@@ -931,23 +934,6 @@ class AI {
         if (depth === 0) {
             return this.evaluate(game);
         }
-
-        // --- Null Move Pruning ---
-        // Only perform if depth is reasonable and not a PV node (to avoid pruning winning lines)
-        // R = Reduction. Common is R=2.
-        if (depth >= 3 && !isPvNode && !game.winner) {
-            const clone = game.clone();
-            clone.makeNullMove(); 
-            // Check if null move caused end of game or turn pass
-            // We perform a shallow search with reduced depth
-            const R = 2;
-            const score = -this.alphaBeta(clone, depth - 1 - R, -beta, -beta + 1, false);
-            
-            if (score >= beta) {
-                return beta; // Cutoff
-            }
-        }
-        // -------------------------
 
         const moves = this.getCandidateMoves(game);
         if (moves.length === 0) return this.evaluate(game);
