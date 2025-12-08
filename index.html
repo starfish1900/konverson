@@ -14,11 +14,11 @@
             
             /* Team 1 */
             --color-A: #ff4d4d; /* Red */
-            --color-C: #ffb84d; /* Orange */
+            --color-C: #00ff00; /* Pure Green */
             
             /* Team 2 */
             --color-B: #4d79ff; /* Blue */
-            --color-D: #4dffff; /* Cyan */
+            --color-D: #ffff00; /* Pure Yellow */
         }
 
         body {
@@ -295,7 +295,7 @@
 
 <header>
     <h1>Konverson v50</h1>
-    <p>Parallel AI + Iterative Deepening (No NMP)</p>
+    <p>Parallel AI + Iterative Deepening (Fixed Win Logic)</p>
 </header>
 
 <div id="game-container">
@@ -316,9 +316,7 @@
 
     <div id="message-area"></div>
 
-    <!-- New Flex Container for Side-by-Side Layout -->
     <div id="main-area">
-        <!-- New Stats Box -->
         <div id="stats-box">
             <h3>Turn Succession</h3>
             <div class="stat-row" id="stat-A">
@@ -340,8 +338,7 @@
         </div>
 
         <div id="board">
-            <!-- JS generates grid here -->
-        </div>
+            </div>
     </div>
 
     <div id="controls">
@@ -349,17 +346,14 @@
         <select id="ai-difficulty">
             <option value="1">Easy (Depth 1)</option>
             <option value="2" selected>Normal (Depth 2)</option>
-            <option value="3">Hard (Depth 3)</option>
-            <option value="4">Deep (Depth 4)</option>
-            <option value="5">Master (Depth 5)</option>
+            <option value="4">Hard (Depth 4)</option>
+            <option value="6">Deep (Depth 6)</option>
+            <option value="8">Master (Depth 8)</option>
         </select>
         <select id="board-size">
-            <option value="9">9 x 9</option>
-            <option value="10">10 x 10</option>
-            <option value="11">11 x 11</option>
-            <option value="12">12 x 12</option>
-            <option value="13" selected>13 x 13</option>
-            <option value="14">14 x 14</option>
+            <option value="9">9 x 9</option>            
+            <option value="11">11 x 11</option>           
+            <option value="13" selected>13 x 13</option>            
             <option value="15">15 x 15</option>
         </select>
         <div id="ai-status"></div>
@@ -591,7 +585,6 @@ class GameState {
             let currR = r + d[0];
             let currC = c + d[1];
             let foundPincer = false;
-            let lineEnemyColor = null; // Track the specific color being captured
 
             while (currR >= 0 && currR < this.size && currC >= 0 && currC < this.size) {
                 const p = this.grid[currR][currC];
@@ -603,14 +596,6 @@ class GameState {
                 }
                 
                 if (p.posture === PAWN_NEW) break;
-                
-                // Check homogeneity of the line
-                if (lineEnemyColor === null) {
-                    lineEnemyColor = p.color;
-                } else if (p.color !== lineEnemyColor) {
-                    break; // Mixed colors -> invalid capture
-                }
-
                 path.push({r: currR, c: currC, pawn: p});
                 currR += d[0];
                 currC += d[1];
@@ -789,7 +774,7 @@ class AI {
     }
 
     evaluate(game) {
-        if (game.winner) return -100000; // Increased win score
+        if (game.winner) return -100000000; // HUGE WIN SCORE
         const color = game.getCurrentColor();
         const ally = TEAMS[color] === 'AC' ? (color==='A'?'C':'A') : (color==='B'?'D':'B');
         
@@ -847,8 +832,6 @@ class AI {
 
         score += (myCount - enemyCount) * 1000;
 
-        // Island Extension Heuristic: Reward max span of connected component
-        // NEW: Bonus for islands touching the border (applied once per island)
         let maxIslandScore = 0;
         const visited = new Set();
 
@@ -862,7 +845,7 @@ class AI {
                 if(p && (p.color === color || p.color === ally) && !visited.has(key)) {
                     let minR = r, maxR = r;
                     let minC = c, maxC = c;
-                    let touchesBorder = false; // Flag for single bonus application
+                    let touchesBorder = false; 
                     
                     const queue = [{r,c}];
                     visited.add(key);
@@ -871,7 +854,6 @@ class AI {
                     while(head < queue.length) {
                         const curr = queue[head++];
                         
-                        // Check if current pawn is on border
                         if (game.getZone(curr.r, curr.c) === ZONE_BORDER) {
                             touchesBorder = true;
                         }
@@ -901,7 +883,6 @@ class AI {
                     }
                     
                     let islandScore = Math.max(maxR - minR, maxC - minC);
-                    // Apply Border Access Bonus (equivalent to +2 span units)
                     if (touchesBorder) {
                         islandScore += 2;
                     }
@@ -911,7 +892,6 @@ class AI {
             }
         }
         
-        // 20 pts per unit of span rewards extending chains
         score += maxIslandScore * 20;
         
         return score;
@@ -950,14 +930,33 @@ class AI {
             clone.placePawn(move.r, move.c);
             let score;
             
-            if (moveCount === 1) {
-                score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, true);
+            // FIX: CHECK IF TURN CONTINUES FOR MAXIMIZING PLAYER
+            const nextColor = clone.getCurrentColor();
+            const currColor = game.getCurrentColor();
+            
+            if (nextColor === currColor) {
+                // SAME PLAYER MOVING AGAIN (e.g. 2nd placement) -> MAXIMIZE (no negate)
+                // However, alpha/beta need to be handled carefully. 
+                // Since we are maximizing, we use alpha/beta as is.
+                
+                // Note: PVS logic needs adjustment for non-negating.
+                // Simplified Alpha-Beta for Same-Turn:
+                score = this.alphaBeta(clone, depth - 1, alpha, beta, true); 
+                
+                // Note: Standard PVS with null-window might break if we don't handle logic perfectly.
+                // Fallback to simple AB for same-turn to be safe:
+                // score = this.alphaBeta(clone, depth - 1, alpha, beta, false);
             } else {
-                let reduction = 0;
-                if (depth >= 3 && moveCount > 4 && !isPvNode) reduction = 1;
-                score = -this.alphaBeta(clone, depth - 1 - reduction, -alpha - 1, -alpha, false);
-                if (score > alpha && (reduction > 0 || (score < beta))) {
-                    score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, false);
+                // OPPONENT TURN -> MINIMIZE (Standard NegaMax)
+                if (moveCount === 1) {
+                    score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, true);
+                } else {
+                    let reduction = 0;
+                    if (depth >= 3 && moveCount > 4 && !isPvNode) reduction = 1;
+                    score = -this.alphaBeta(clone, depth - 1 - reduction, -alpha - 1, -alpha, false);
+                    if (score > alpha && (reduction > 0 || (score < beta))) {
+                        score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, false);
+                    }
                 }
             }
 
@@ -998,7 +997,19 @@ class AI {
                 const clone = game.clone();
                 clone.placePawn(move.r, move.c);
                 
-                const score = -this.alphaBeta(clone, currentDepth - 1, -beta, -alpha, true);
+                // ROOT FIX: Check if turn continues
+                const nextColor = clone.getCurrentColor();
+                const currColor = game.getCurrentColor();
+                let score;
+
+                if (nextColor === currColor) {
+                    // Same turn -> Don't negate
+                    score = this.alphaBeta(clone, currentDepth - 1, alpha, beta, true);
+                } else {
+                    // Turn changes -> Negate
+                    score = -this.alphaBeta(clone, currentDepth - 1, -beta, -alpha, true);
+                }
+                
                 move.score = score;
 
                 if (score > iterationBestScore) {
@@ -1086,7 +1097,7 @@ class ParallelAI {
         });
 
         const statusDiv = document.getElementById('ai-status');
-        statusDiv.innerText = `Dispatching ${candidates.length} moves (Iterative Deepening + NMP + QS)...`;
+        statusDiv.innerText = `Dispatching ${candidates.length} moves (Iterative Deepening)...`;
 
         const results = await Promise.all(promises);
         
@@ -1105,7 +1116,7 @@ class ParallelAI {
         });
 
         console.log(`Parallel Search Completed. Total Nodes: ${totalNodes}, Best Score: ${globalBestScore}`);
-        statusDiv.innerText = `Visited ${totalNodes} nodes using ID + Parallel + NMP + QS.`;
+        statusDiv.innerText = `Visited ${totalNodes} nodes using ID + Parallel (Fixed Win Logic).`;
         
         return globalBestMove;
     }
