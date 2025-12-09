@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konverson v50 - Parallel AI with Iterative Deepening</title>
+    <title>Konverson</title>
     <style>
         :root {
             --bg-color: #1a1a1a;
@@ -294,8 +294,7 @@
 <body>
 
 <header>
-    <h1>Konverson v50</h1>
-    <p>Parallel AI + Iterative Deepening (Fixed Win Logic)</p>
+    <h1>Konverson</h1>    
 </header>
 
 <div id="game-container">
@@ -316,7 +315,9 @@
 
     <div id="message-area"></div>
 
+    <!-- New Flex Container for Side-by-Side Layout -->
     <div id="main-area">
+        <!-- New Stats Box -->
         <div id="stats-box">
             <h3>Turn Succession</h3>
             <div class="stat-row" id="stat-A">
@@ -338,7 +339,8 @@
         </div>
 
         <div id="board">
-            </div>
+            <!-- JS generates grid here -->
+        </div>
     </div>
 
     <div id="controls">
@@ -352,7 +354,7 @@
         </select>
         <select id="board-size">
             <option value="9">9 x 9</option>            
-            <option value="11">11 x 11</option>           
+            <option value="11">11 x 11</option>            
             <option value="13" selected>13 x 13</option>            
             <option value="15">15 x 15</option>
         </select>
@@ -553,6 +555,14 @@ class GameState {
         }
     }
 
+    makeNullMove() {
+        if (this.placementsLeft === 1) {
+            this.endTurn();
+        } else {
+            this.placementsLeft--;
+        }
+    }
+
     placePawn(r, c) {
         if (!this.isValidMove(r, c)) return false;
 
@@ -585,6 +595,7 @@ class GameState {
             let currR = r + d[0];
             let currC = c + d[1];
             let foundPincer = false;
+            let lineEnemyColor = null; // Track the specific color being captured
 
             while (currR >= 0 && currR < this.size && currC >= 0 && currC < this.size) {
                 const p = this.grid[currR][currC];
@@ -596,6 +607,14 @@ class GameState {
                 }
                 
                 if (p.posture === PAWN_NEW) break;
+                
+                // NEW: Ensure all pawns in the line are of the exact same color
+                if (lineEnemyColor === null) {
+                    lineEnemyColor = p.color;
+                } else if (p.color !== lineEnemyColor) {
+                    break; // Line contains mixed colors, invalid capture
+                }
+
                 path.push({r: currR, c: currC, pawn: p});
                 currR += d[0];
                 currC += d[1];
@@ -774,9 +793,16 @@ class AI {
     }
 
     evaluate(game) {
-        if (game.winner) return -100000000; // HUGE WIN SCORE
+        // FIX: Determine perspective. Evaluate score RELATIVE to current player.
         const color = game.getCurrentColor();
         const ally = TEAMS[color] === 'AC' ? (color==='A'?'C':'A') : (color==='B'?'D':'B');
+        
+        // If there is a winner, check if it's ME (positive) or OPPONENT (negative)
+        if (game.winner) {
+            if (game.winner === 'Draw') return 0;
+            if (game.winner === color || game.winner === ally) return 1000000;
+            return -1000000;
+        }
         
         let score = 0;
         let myCount = 0;
@@ -801,7 +827,6 @@ class AI {
                     }
                     val += safeAxes * 20;
 
-                    // Border Safety Heuristic
                     if (game.getZone(r, c) === ZONE_BORDER) {
                         const pAlly = (p.color === 'A' ? 'C' : (p.color === 'C' ? 'A' : (p.color === 'B' ? 'D' : 'B')));
                         let hasAlly = false;
@@ -915,6 +940,8 @@ class AI {
             return this.evaluate(game);
         }
 
+        // NO NULL MOVE PRUNING HERE (Removed)
+
         const moves = this.getCandidateMoves(game);
         if (moves.length === 0) return this.evaluate(game);
 
@@ -935,19 +962,25 @@ class AI {
             const currColor = game.getCurrentColor();
             
             if (nextColor === currColor) {
-                // SAME PLAYER MOVING AGAIN (e.g. 2nd placement) -> MAXIMIZE (no negate)
-                // However, alpha/beta need to be handled carefully. 
-                // Since we are maximizing, we use alpha/beta as is.
+                // SAME TURN -> Don't negate score.
+                // Note on Alpha/Beta:
+                // We are maximizing. Our children also want to maximize (it's us).
+                // Alpha/Beta window should remain same? 
+                // Wait, if child returns 50, that's good for us.
+                // If child returns -50, that's bad.
+                // Alpha is our lower bound. 
+                // If child returns > Alpha, update Alpha.
                 
-                // Note: PVS logic needs adjustment for non-negating.
-                // Simplified Alpha-Beta for Same-Turn:
-                score = this.alphaBeta(clone, depth - 1, alpha, beta, true); 
-                
-                // Note: Standard PVS with null-window might break if we don't handle logic perfectly.
-                // Fallback to simple AB for same-turn to be safe:
-                // score = this.alphaBeta(clone, depth - 1, alpha, beta, false);
+                // Simplified PVS logic for same-turn
+                if (moveCount === 1) {
+                    score = this.alphaBeta(clone, depth - 1, alpha, beta, true);
+                } else {
+                     // LMR logic adapted for non-negating? 
+                     // Risk of complexity. Fallback to full window non-negating search.
+                     score = this.alphaBeta(clone, depth - 1, alpha, beta, false);
+                }
             } else {
-                // OPPONENT TURN -> MINIMIZE (Standard NegaMax)
+                // TURN CHANGE -> Negate score (NegaMax)
                 if (moveCount === 1) {
                     score = -this.alphaBeta(clone, depth - 1, -beta, -alpha, true);
                 } else {
